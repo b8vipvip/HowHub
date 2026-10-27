@@ -10,7 +10,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, dom, pdo_sqlite, fileinfo
+          extensions: mbstring, dom, pdo_sqlite, fileinfo, curl, openssl
           coverage: none
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l

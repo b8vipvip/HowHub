@@ -47,3 +47,25 @@ unconfigured=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
   http://127.0.0.1:8099/admin/import/generate)
 test "$unconfigured" = "400"
 echo 'HowHub AI import e2e passed: settings / editor / HTML paste / CSRF / missing config'
+# Fake chat2api upstream: verify encrypted provider config, model discovery, AI-created draft.
+php -S 127.0.0.1:8100 tests/mock_ai.php >/tmp/howhub-mock-ai.log 2>&1 &
+mock_pid=$!
+trap 'kill "$server_pid" "$mock_pid" 2>/dev/null || true; rm -f "$login" "$jar"' EXIT
+for attempt in $(seq 1 30); do
+  if curl -s http://127.0.0.1:8100/v1/models >/dev/null 2>&1; then break; fi
+  sleep .25
+done
+status=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
+  --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'base_url=http://127.0.0.1:8100/v1' \
+  --data-urlencode 'api_key=sk-ci-local-token' \
+  --data-urlencode 'model=ci-demo' http://127.0.0.1:8099/admin/ai-settings)
+test "$status" = "303"
+curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" http://127.0.0.1:8099/admin/ai/models >/dev/null
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'ci-demo'
+response=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'html=<h2>操作</h2><p>点击按钮<img src="https://example.org/a.png"></p><p>扫码<img src="https://example.org/b.png"></p>' \
+  http://127.0.0.1:8099/admin/import/generate)
+php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 || !preg_match("~/admin/guides/edit\\?id=\\d+~",$j["edit_url"])) exit(1);' "$response"
+php -r 'require "app/bootstrap.php"; $g=database()->query("SELECT * FROM guides WHERE title = '\''模拟生成的教程'\'' ORDER BY id DESC LIMIT 1")->fetch(); if(!$g || $g["status"]!=="draft" || substr_count($g["body_html"],"<img ")!==2 || !str_contains($g["body_html"],"example.org/a.png")) exit(1);'
+echo 'HowHub mock chat2api e2e passed: encrypted config / model discovery / AI draft / image placeholders'
