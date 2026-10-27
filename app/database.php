@@ -86,6 +86,9 @@ function make_slug(string $input): string
 
 function seed_howhub(PDO $pdo): void
 {
+    // 只在首次初始化时导入示例，之后即使用户删光教程也不能自动恢复。
+    $seeded = $pdo->query("SELECT value FROM settings WHERE key='seed_version'")->fetchColumn();
+    if ($seeded !== false) return;
     $count = (int)$pdo->query('SELECT COUNT(*) FROM categories')->fetchColumn();
     if ($count === 0) {
         $stmt = $pdo->prepare('INSERT OR IGNORE INTO categories (name, slug, description, sort_order) VALUES (?, ?, ?, ?)');
@@ -100,6 +103,7 @@ function seed_howhub(PDO $pdo): void
     }
     $count = (int)$pdo->query('SELECT COUNT(*) FROM guides')->fetchColumn();
     if ($count !== 0) {
+        $pdo->exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('seed_version', '1')");
         return;
     }
     $urls = [
@@ -135,7 +139,7 @@ function seed_howhub(PDO $pdo): void
         $categoryId,
         'TCL,雷鸟电视,酷狗音乐,账号绑定,音乐会员',
     ]);
-    foreach (['site_title' => 'HowHub', 'site_description' => '把复杂步骤讲简单，让每份指南都能轻松上手。'] as $key => $value) {
+    foreach (['site_title' => 'HowHub', 'site_description' => '把复杂步骤讲简单，让每份指南都能轻松上手。', 'seed_version' => '1'] as $key => $value) {
         $stmt = $pdo->prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
         $stmt->execute([$key, $value]);
     }
