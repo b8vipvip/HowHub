@@ -25,7 +25,10 @@ status=$(curl -sS -b "$jar" -c "$jar" -o /dev/null -w '%{http_code}' -X POST \
 test "$status" = "303"
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin | grep -q '教程总数'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'rich-editor'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'media-dialog'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/media | grep -q '素材管理'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/media/list | grep -q '"ok":true'
 blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
   -d 'title=should-not-save' http://127.0.0.1:8099/admin/guides/save)
 test "$blocked" = "419"
-echo 'HowHub e2e passed: homepage / guide / search / admin / editor / CSRF'
+echo 'HowHub e2e passed: homepage / guide / search / admin / editor / media / CSRF'

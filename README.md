@@ -4,14 +4,24 @@
 
 技术栈：**PHP 8.2+ / SQLite / 原生 CSS 和 JavaScript**。不依赖 Node、npm、Docker、Composer 或第三方数据库。适合 Ubuntu + 宝塔面板的普通 PHP 网站。
 
+## 新增：素材管理与附件下载（v0.2）
+
+- 后台 **「素材管理」**（`/admin/media`）集中查看图片和附件，支持上传（可多选）、重命名、复制素材链接和删除未被文章引用的文件。已引用的素材不能直接删除。
+- 教程编辑器可点击正文中的现有图片，然后 **替换、删除、修改描述、在全宽／70%／40%之间切换、上移下移**。可打开「素材库」插入已上传的图片或下载附件，封面也可从素材库选择或移除。
+- 附件支持 PDF、TXT、DOC/DOCX、XLS/XLSX、PPT/PPTX、ZIP，最多 20MB。**文档始终强制下载**，存放于非公开的 `storage/media_files/`，只有已发布教程引用或管理员登录状态才允许下载；上传文件永不在服务器执行。
+- 图片支持 PNG/JPEG/WebP/GIF，最大 6MB；记录进入数据库并保存在 `public/uploads/`。旧版本已上传的本地图片会在首次打开素材管理时自动补录，不会迁移、重命名或删除已有文件。
+- 点击图片进行修改之后必须再点击 **保存教程** 才会公开生效。文件重命名仅修改素材清单显示名（附件下载名），不改变已经引用的链接。
+- 无法保证第三方语雀 CDN 链接一直有效。截图如出现破图，先尝试 [转存语雀配图脚本](#五转存首篇教程配图建议)，转存失败则应下载原图或使用原始截图并在编辑器中逐一替换。**图片源码不存放在 Git 仓库，网站更新前后都要备份 `storage/` 和 `public/uploads/`。**
+
 ## 功能
 
 - 首页：响应式布局、教程卡片、分类导航、关键词搜索、分页。
 - 详情页：完整富文本图文混排、自动章节目录、阅读量、移动端适配。
 - 后台 `/admin/login`：用户名密码登录；只允许管理员写入，CSRF 防护，登录限速。
 - 教程管理：新建、编辑、删除、草稿、正式发布、置顶、标题、摘要、SEO 友好的网址别名、分类、标签、封面。
-- 富文本编辑：H2/H3 标题、加粗、斜体、列表、链接、图片上传、粘贴截图、远程图片地址。
+- 富文本编辑：H2/H3 标题、加粗、斜体、列表、链接、图片上传、粘贴截图、远程图片地址、选中图片调整与素材库插入附件。
 - 分类管理：增加、编辑、删除分类；删除分类不删除其文章。
+- 素材管理：图片/附件上传、重命名、复制地址、引用校验、删除及旧版图片自动入库。
 - 设置：网站名称与介绍、管理员修改密码。
 - 图片安全：PNG/JPEG/WebP/GIF，限制 6 MB，服务器校验 MIME 和内容、随机文件名；上传后从本站 `/uploads` 提供。
 - 站点运行：`/healthz` 返回状态 JSON，免 Docker，数据库保存在不对公网开放的 `storage/`。
@@ -102,13 +112,13 @@ sudo -u www /www/server/php/83/bin/php bin/import-yuque-images.php
 curl -fsS https://howhub.k2n.cn/healthz
 # 预期：{"ok":true,"app":"HowHub"}
 
-# 后续更新（操作前先备份 storage 和 uploads）
+# 后续更新（操作前先备份 storage 和 uploads，数据库会无损创建 media_assets 表）
 cd /www/wwwroot/howhub.k2n.cn/HowHub
 git pull --ff-only origin main
 sudo chown -R www:www storage public/uploads
 ```
 
-**重要：** `storage/howhub.sqlite` 及 `public/uploads/` 在 `.gitignore` 中，不会被 Git 更新覆盖。上线后要在宝塔「计划任务」中每天备份这两个目录，SQLite 数据备份建议用 `sqlite3 ... '.backup ...'` 或停写/快照方式，切勿在写入期间仅复制单一 `.sqlite` 而忽略 WAL 文件。避免给 `storage` 开启公开下载。
+**重要：** `storage/howhub.sqlite` 及 `public/uploads/` 在 `.gitignore` 中，不会被 Git 更新覆盖。上线后要在宝塔「计划任务」中每天备份这两个目录（包含 storage/media_files 附件），SQLite 数据备份建议用 `sqlite3 ... '.backup ...'` 或停写/快照方式，切勿在写入期间仅复制单一 `.sqlite` 而忽略 WAL 文件。避免给 `storage` 开启公开下载。
 
 ## 本地开发与检查
 
@@ -130,6 +140,8 @@ bin/                 CLI 管理员创建、语雀图片本地迁移
 public/index.php     页面与后台路由
 public/assets/       CSS、前台富文本编辑 JavaScript
 public/uploads/      上传的图片（不提交 Git）
+storage/media_files/ 下载附件（不提交 Git，不能通过 Nginx 静态访问）
+app/media.php         素材登记、类型验证、引用保护
 storage/             SQLite 数据库（不提交 Git）
 .github/workflows/   GitHub Actions 语法/功能校验
 ```

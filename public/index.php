@@ -107,6 +107,24 @@ if (preg_match('~^/guide/([^/]+)$~u', $path, $match) && $method === 'GET') {
     exit;
 }
 
+// 文档存储在非公开的 storage 下，仅以附件形式提供下载。
+if ($method === 'GET' && preg_match('~^/file/(\d+)$~', $path, $match)) {
+    $q = $pdo->prepare("SELECT * FROM media_assets WHERE id=? AND kind='file'");
+    $q->execute([(int)$match[1]]);
+    $asset = $q->fetch();
+    if (!$asset) error_page(404, '文件不存在', '附件可能已被移除。');
+    if (!logged_in() && media_usage_published($pdo, $asset['url']) === 0) error_page(404, '文件不存在', '附件尚未公开发布。');
+    $filePath = media_file_path($asset);
+    if (!$filePath) error_page(404, '文件不存在', '服务器找不到附件。');
+    header('Content-Type: application/octet-stream');
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: attachment; filename="download"; filename*=UTF-8\'\'' . rawurlencode($asset['original_name']));
+    header('Content-Length: ' . filesize($filePath));
+    header('Cache-Control: private, no-store');
+    readfile($filePath);
+    exit;
+}
+
 // 从此处起均为后台路由。
 if (!str_starts_with($path, '/admin')) {
     error_page(404, '页面不存在', '找不到你要访问的页面。');
@@ -158,26 +176,73 @@ if ($path === '/admin/upload' && $method === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
     try {
         check_csrf();
-        $file = $_FILES['image'] ?? null;
-        if (!is_array($file) || $file['error'] !== UPLOAD_ERR_OK || (int)$file['size'] <= 0 || (int)$file['size'] > 6 * 1024 * 1024) {
-            throw new RuntimeException('请选择小于 6MB 的图片');
-        }
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $mime = $finfo->file($file['tmp_name']);
-        $formats = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'image/gif' => 'gif'];
-        if (!isset($formats[$mime]) || !getimagesize($file['tmp_name'])) {
-            throw new RuntimeException('仅支持 PNG、JPG、WebP、GIF 图片');
-        }
-        $subdir = date('Y/m');
-        $directory = __DIR__ . '/uploads/' . $subdir;
-        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) throw new RuntimeException('上传目录没有写入权限');
-        $name = bin2hex(random_bytes(16)) . '.' . $formats[$mime];
-        if (!move_uploaded_file($file['tmp_name'], $directory . '/' . $name)) throw new RuntimeException('图片保存失败');
-        echo json_encode(['ok' => true, 'url' => '/uploads/' . $subdir . '/' . $name], JSON_UNESCAPED_UNICODE);
+        $file = $_FILES['asset'] ?? $_FILES['image'] ?? null;
+        if (!is_array($file)) throw new RuntimeException('没有收到上传文件');
+        $asset = media_upload($pdo, $file);
+        echo json_encode(['ok' => true, 'url' => $asset['url'], 'kind' => $asset['kind'], 'asset' => $asset], JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
     }
+    exit;
+}
+
+if ($path === '/admin/media/list' && $method === 'GET') {
+    media_sync_legacy($pdo);
+    $kind = (string)($_GET['kind'] ?? 'all');
+    $sql = "SELECT * FROM media_assets" . ($kind === 'image' || $kind === 'file' ? " WHERE kind=?" : '') . ' ORDER BY id DESC LIMIT 250';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($kind === 'image' || $kind === 'file' ? [$kind] : []);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo json_encode(['ok' => true, 'assets' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($path === '/admin/media/action' && $method === 'POST') {
+    check_csrf();
+    $id = (int)($_POST['id'] ?? 0);
+    $action = (string)($_POST['action'] ?? '');
+    try {
+        if ($action === 'delete') {
+            media_delete($pdo, $id);
+            flash('素材文件已删除。');
+        } elseif ($action === 'rename') {
+            $name = mb_substr(trim((string)($_POST['name'] ?? '')), 0, 120);
+            if ($name === '') throw new RuntimeException('素材名称不能为空');
+            $q = $pdo->prepare('UPDATE media_assets SET original_name=? WHERE id=?');
+            $q->execute([$name, $id]);
+            flash('素材名称已修改。');
+        } else {
+            throw new RuntimeException('操作不受支持');
+        }
+    } catch (Throwable $e) {
+        flash($e->getMessage(), 'error');
+    }
+    redirect_to('/admin/media');
+}
+
+if ($path === '/admin/media' && $method === 'GET') {
+    media_sync_legacy($pdo);
+    $stmt = $pdo->query('SELECT * FROM media_assets ORDER BY id DESC LIMIT 250');
+    $assets = $stmt->fetchAll();
+    page_start('素材管理', '', true);
+    echo '<main class="shell admin-main">';
+    admin_heading('MEDIA LIBRARY', '素材管理', '统一管理图片和教程附件，支持上传、重命名、查看引用及安全删除。', '<a class="button secondary" href="/admin/guides">返回教程 →</a>');
+    echo '<section class="admin-panel"><div class="media-toolbar"><label class="button primary media-upload-label">＋ 上传图片或附件<input id="media-upload-input" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" multiple hidden></label><span class="muted">图片上限 6MB，文档上限 20MB；不支持可执行文件。删除被文章引用的素材会被阻止。</span></div><div id="media-status" class="editor-message" role="status"></div><div class="media-grid">';
+    if (!$assets) echo '<p class="muted">还没有上传素材。</p>';
+    foreach ($assets as $asset) {
+        $url = $asset['url'];
+        $used = media_usage($pdo, $url);
+        echo '<article class="media-card"><div class="media-thumb">';
+        if ($asset['kind'] === 'image') echo '<img loading="lazy" src="' . h($url) . '" alt="' . h($asset['original_name']) . '">';
+        else echo '<span class="media-file-icon">📄</span>';
+        echo '</div><div class="media-card-content"><strong title="' . h($asset['original_name']) . '">' . h($asset['original_name']) . '</strong><small>' . h(strtoupper(pathinfo($asset['original_name'], PATHINFO_EXTENSION))) . ' · ' . round((int)$asset['byte_size'] / 1024) . ' KB · 引用 ' . $used . ' 篇</small><div class="media-url"><input readonly value="' . h($url) . '" aria-label="素材网址"><button type="button" data-copy="' . h($url) . '">复制</button></div>';
+        echo '<form method="post" action="/admin/media/action" class="media-rename">' . csrf_input() . '<input type="hidden" name="action" value="rename"><input type="hidden" name="id" value="' . (int)$asset['id'] . '"><input name="name" value="' . h($asset['original_name']) . '" aria-label="文件名称" maxlength="120"><button class="button secondary" type="submit">改名</button></form>';
+        echo '<form method="post" action="/admin/media/action" data-confirm="确定删除这个文件吗？此操作不可撤销。" class="media-delete">' . csrf_input() . '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' . (int)$asset['id'] . '"><button type="submit" class="button secondary text-danger"' . ($used > 0 ? ' disabled title="请先从引用文章中移除"' : '') . '>删除文件</button></form></div></article>';
+    }
+    echo '</div></section></main>';
+    page_end(true);
     exit;
 }
 
@@ -261,11 +326,11 @@ if (($path === '/admin/guides/new' || $path === '/admin/guides/edit') && $method
     page_start($id ? '编辑教程' : '新建教程', '', true);
     echo '<main class="shell admin-main">';
     admin_heading('EDITOR', $id ? '编辑教程' : '新建教程', '用图文结合的方式，清楚地描述每一步操作。', '<a class="button secondary" href="/admin/guides">← 返回列表</a>');
-    echo '<form id="guide-form" method="post" action="/admin/guides/save" class="editor-layout">' . csrf_input() . '<input type="hidden" name="id" value="' . (int)$guide['id'] . '"><div class="editor-main admin-panel"><label class="field">教程标题<input name="title" required maxlength="180" placeholder="例如：TCL雷鸟电视查看和绑定酷狗账号" value="' . h($guide['title']) . '"></label><label class="field">简短介绍<textarea name="summary" rows="3" maxlength="450" placeholder="一句话告诉读者，这篇教程可以解决什么问题">' . h($guide['summary']) . '</textarea></label><div class="field"><span class="field-title">教程正文</span><p class="field-help">支持标题、加粗、列表、插入图片、引用、链接等富文本内容。</p><div class="editor-toolbar" role="toolbar" aria-label="编辑器工具栏"><button type="button" data-command="formatBlock" data-value="h2">标题 H2</button><button type="button" data-command="formatBlock" data-value="h3">小标题 H3</button><button type="button" data-command="bold"><b>B</b></button><button type="button" data-command="italic"><i>I</i></button><button type="button" data-command="insertUnorderedList">• 列表</button><button type="button" data-command="insertOrderedList">1. 列表</button><button type="button" data-action="link">链接</button><button type="button" data-action="image">上传图片</button><button type="button" data-action="remote-image">图片网址</button><button type="button" data-command="removeFormat">清除格式</button></div><div class="editor-area article-content" id="rich-editor" contenteditable="true" data-placeholder="从这里开始写教程，可以直接粘贴文本或图片…">' . sanitize_content($guide['body_html']) . '</div><textarea name="body_html" id="body-html" hidden></textarea><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="image-picker" hidden><div class="editor-message" id="editor-message" aria-live="polite"></div></div></div><aside class="editor-side"><div class="admin-panel editor-side-panel"><h3>发布设置</h3><label class="field">状态<select name="status"><option value="draft" ' . ($guide['status'] === 'draft' ? 'selected' : '') . '>草稿（不公开）</option><option value="published" ' . ($guide['status'] === 'published' ? 'selected' : '') . '>正式发布</option></select></label><label class="field">内容分类<select name="category_id"><option value="">未分类</option>';
+    echo '<form id="guide-form" method="post" action="/admin/guides/save" class="editor-layout">' . csrf_input() . '<input type="hidden" name="id" value="' . (int)$guide['id'] . '"><div class="editor-main admin-panel"><label class="field">教程标题<input name="title" required maxlength="180" placeholder="例如：TCL雷鸟电视查看和绑定酷狗账号" value="' . h($guide['title']) . '"></label><label class="field">简短介绍<textarea name="summary" rows="3" maxlength="450" placeholder="一句话告诉读者，这篇教程可以解决什么问题">' . h($guide['summary']) . '</textarea></label><div class="field"><span class="field-title">教程正文</span><p class="field-help">点击正文图片后可替换、删除、修改大小和顺序，也可以从素材库选择图片或附件。</p><div class="editor-toolbar" role="toolbar" aria-label="编辑器工具栏"><button type="button" data-command="formatBlock" data-value="h2">标题 H2</button><button type="button" data-command="formatBlock" data-value="h3">小标题 H3</button><button type="button" data-command="bold"><b>B</b></button><button type="button" data-command="italic"><i>I</i></button><button type="button" data-command="insertUnorderedList">• 列表</button><button type="button" data-command="insertOrderedList">1. 列表</button><button type="button" data-action="link">链接</button><button type="button" data-action="image">上传图片</button><button type="button" data-action="library">素材库</button><button type="button" data-action="replace-image">替换选中图片</button><button type="button" data-action="remove-image">删除选中图片</button><button type="button" data-action="image-alt">图片描述</button><button type="button" data-action="image-size">图片大小</button><button type="button" data-action="image-up">图片上移</button><button type="button" data-action="image-down">图片下移</button><button type="button" data-action="remote-image">图片网址</button><button type="button" data-command="removeFormat">清除格式</button></div><div class="editor-area article-content" id="rich-editor" contenteditable="true" data-placeholder="从这里开始写教程，可以直接粘贴文本或图片…">' . sanitize_content($guide['body_html']) . '</div><textarea name="body_html" id="body-html" hidden></textarea><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="image-picker" hidden><div class="editor-message" id="editor-message" aria-live="polite"></div><dialog id="media-dialog" class="media-dialog"><div class="dialog-header"><h3>从素材库中选择</h3><button type="button" id="media-dialog-close" class="button secondary">关闭</button></div><div class="media-dialog-tools"><button type="button" data-media-kind="all">全部</button><button type="button" data-media-kind="image">图片</button><button type="button" data-media-kind="file">文档</button><label class="button secondary media-upload-label">＋ 上传<input id="dialog-upload" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" multiple hidden></label></div><div id="media-dialog-list" class="media-dialog-list">正在加载…</div></dialog></div></div><aside class="editor-side"><div class="admin-panel editor-side-panel"><h3>发布设置</h3><label class="field">状态<select name="status"><option value="draft" ' . ($guide['status'] === 'draft' ? 'selected' : '') . '>草稿（不公开）</option><option value="published" ' . ($guide['status'] === 'published' ? 'selected' : '') . '>正式发布</option></select></label><label class="field">内容分类<select name="category_id"><option value="">未分类</option>';
     foreach ($categories as $cat) echo '<option value="' . (int)$cat['id'] . '" ' . ((int)$guide['category_id'] === (int)$cat['id'] ? 'selected' : '') . '>' . h($cat['name']) . '</option>';
     echo '</select></label><label class="check-field"><input type="checkbox" name="featured" value="1" ' . ($guide['featured'] ? 'checked' : '') . '> 在列表中优先展示</label><button class="button primary full" type="submit">保存教程 →</button>';
     if ($id && $guide['status'] === 'published') echo '<a href="/guide/' . h(rawurlencode($guide['slug'])) . '" target="_blank" class="button secondary full">预览已发布页面 ↗</a>';
-    echo '</div><div class="admin-panel editor-side-panel"><h3>文章信息</h3><label class="field">网址别名<input name="slug" value="' . h($guide['slug']) . '" placeholder="留空自动生成"></label><label class="field">标签（逗号分隔）<input name="tags" value="' . h($guide['tags']) . '" placeholder="电视,软件,账户"></label><label class="field">封面图片网址<input name="cover_image" id="cover-image" value="' . h($guide['cover_image']) . '" placeholder="https://... 或 /uploads/..."></label><button type="button" id="cover-upload" class="button secondary full">上传封面图片</button><div class="cover-preview" id="cover-preview">';
+    echo '</div><div class="admin-panel editor-side-panel"><h3>文章信息</h3><label class="field">网址别名<input name="slug" value="' . h($guide['slug']) . '" placeholder="留空自动生成"></label><label class="field">标签（逗号分隔）<input name="tags" value="' . h($guide['tags']) . '" placeholder="电视,软件,账户"></label><label class="field">封面图片网址<input name="cover_image" id="cover-image" value="' . h($guide['cover_image']) . '" placeholder="https://... 或 /uploads/..."></label><button type="button" id="cover-upload" class="button secondary full">上传封面图片</button><button type="button" id="cover-library" class="button secondary full">从素材库选择封面</button><button type="button" id="cover-clear" class="button secondary full">移除封面</button><div class="cover-preview" id="cover-preview">';
     if ($guide['cover_image']) echo '<img src="' . h(safe_image($guide['cover_image'])) . '" alt="封面预览">';
     echo '</div></div></aside></form></main>';
     page_end(true);

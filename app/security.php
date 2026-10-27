@@ -111,6 +111,8 @@ function sanitize_content(string $html): string
             }
             $href = $tag === 'a' ? safe_link($child->getAttribute('href')) : '';
             $src = $tag === 'img' ? safe_image($child->getAttribute('src')) : '';
+            $imageClass = $tag === 'img' ? $child->getAttribute('class') : '';
+            $imageClass = in_array($imageClass, ['guide-img-small', 'guide-img-medium'], true) ? $imageClass : '';
             $alt = $tag === 'img' ? mb_substr($child->getAttribute('alt'), 0, 200) : '';
             while ($child->attributes->length > 0) {
                 $child->removeAttributeNode($child->attributes->item(0));
@@ -128,6 +130,7 @@ function sanitize_content(string $html): string
                 $child->setAttribute('src', $src);
                 $child->setAttribute('alt', $alt);
                 $child->setAttribute('loading', 'lazy');
+                if ($imageClass !== '') $child->setAttribute('class', $imageClass);
             }
         }
     };

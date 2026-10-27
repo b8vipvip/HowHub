@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 SQL);
+    media_table($pdo);
     seed_howhub($pdo);
     return $pdo;
 }
