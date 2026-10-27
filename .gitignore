@@ -1,0 +1,11 @@
+/storage/*.sqlite
+/storage/*.sqlite-*
+/storage/*.db
+/storage/*.db-*
+/public/uploads/*
+!/public/uploads/.gitkeep
+!.gitignore
+.DS_Store
+.idea/
+.vscode/
+.env
