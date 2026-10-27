@@ -210,6 +210,13 @@ if ($path === '/admin/media/action' && $method === 'POST') {
         } elseif ($action === 'rename') {
             $name = mb_substr(trim((string)($_POST['name'] ?? '')), 0, 120);
             if ($name === '') throw new RuntimeException('素材名称不能为空');
+            $old = $pdo->prepare('SELECT original_name FROM media_assets WHERE id=?');
+            $old->execute([$id]);
+            $previousName = $old->fetchColumn();
+            if ($previousName === false) throw new RuntimeException('素材不存在');
+            if (strtolower(pathinfo($name, PATHINFO_EXTENSION)) !== strtolower(pathinfo($previousName, PATHINFO_EXTENSION))) {
+                throw new RuntimeException('为避免文件类型误导，请保留原文件扩展名');
+            }
             $q = $pdo->prepare('UPDATE media_assets SET original_name=? WHERE id=?');
             $q->execute([$name, $id]);
             flash('素材名称已修改。');

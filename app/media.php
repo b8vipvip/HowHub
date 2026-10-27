@@ -132,7 +132,7 @@ function media_sync_legacy(PDO $pdo): void
 function media_usage(PDO $pdo, string $url): int
 {
     $q = $pdo->prepare('SELECT COUNT(*) FROM guides WHERE cover_image=? OR instr(body_html, ?) > 0');
-    $q->execute([$url, $url]);
+    $q->execute([$url, '="' . $url . '"']);
     return (int)$q->fetchColumn();
 }
 
@@ -151,6 +151,6 @@ function media_delete(PDO $pdo, int $id): void
 function media_usage_published(PDO $pdo, string $url): int
 {
     $q = $pdo->prepare("SELECT COUNT(*) FROM guides WHERE status='published' AND instr(body_html, ?) > 0");
-    $q->execute([$url]);
+    $q->execute(['="' . $url . '"']);
     return (int)$q->fetchColumn();
 }

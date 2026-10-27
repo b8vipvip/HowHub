@@ -45,3 +45,12 @@ try {
     @rmdir($directory);
 }
 echo "HowHub media smoke passed: migration / image sizing / safe delete\n";
+$pdo->beginTransaction();
+try {
+    $pdo->prepare("INSERT INTO guides(title,slug,body_html,status) VALUES('附件引用匹配','ci-media-reference-check','<p><a href=\"/file/10\">下载</a></p>','published')")->execute();
+    if (media_usage_published($pdo, '/file/1') !== 0 || media_usage_published($pdo, '/file/10') !== 1) {
+        throw new RuntimeException('附件访问权限引用匹配不精确');
+    }
+} finally {
+    $pdo->rollBack();
+}

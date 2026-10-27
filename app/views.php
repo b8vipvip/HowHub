@@ -9,7 +9,7 @@ function page_start(string $title, string $description = '', bool $admin = false
     $nav = $admin ? '<a href="/admin">工作台</a><a href="/admin/guides">教程管理</a><a href="/admin/categories">分类管理</a><a href="/admin/media">素材管理</a><a href="/admin/settings">站点设置</a><a href="/" target="_blank">查看网站 ↗</a>' : '<a href="/#categories">全部分类</a><a href="/?q=电视">热门指南</a>';
     $auth = $admin ? '<form class="logout" action="/admin/logout" method="post">' . csrf_input() . '<button type="submit">退出登录</button></form>' : '<a class="nav-action" href="/admin">管理后台 <span aria-hidden="true">↗</span></a>';
     $class = $admin ? 'admin-page' : 'site-page';
-    echo '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><meta name="description" content="' . h($description) . '"><title>' . h($fullTitle) . '</title><link rel="stylesheet" href="/assets/style.css"></head><body class="' . $class . '">';
+    echo '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><meta name="description" content="' . h($description) . '"><title>' . h($fullTitle) . '</title><link rel="stylesheet" href="/assets/style.css?v=' . (int)@filemtime(HOWHUB_ROOT . '/public/assets/style.css') . '"></head><body class="' . $class . '">';
     echo '<header class="topbar"><div class="shell nav-inner"><a href="/" class="brand" aria-label="HowHub 首页"><span class="brand-logo"><span class="brand-mark">H</span></span><span>' . h($site) . '</span><span class="brand-dot">.</span></a><nav class="nav-links" aria-label="主导航">' . $nav . '</nav><div class="nav-right">' . $auth . '</div></div></header>';
     if (isset($_SESSION['flash'])) {
         $message = $_SESSION['flash'];
@@ -20,7 +20,7 @@ function page_start(string $title, string $description = '', bool $admin = false
 
 function page_end(bool $admin = false): void
 {
-    echo '<footer class="footer"><div class="shell footer-content"><div><div class="footer-brand">HowHub<span>.</span></div><p>让每一步操作，都简单明了。</p></div><div class="footer-links"><span>© ' . date('Y') . ' HowHub</span><a href="/">返回首页</a>' . ($admin ? '' : '<a href="/admin/login">管理入口</a>') . '</div></div></footer><script src="/assets/site.js" defer></script></body></html>';
+    echo '<footer class="footer"><div class="shell footer-content"><div><div class="footer-brand">HowHub<span>.</span></div><p>让每一步操作，都简单明了。</p></div><div class="footer-links"><span>© ' . date('Y') . ' HowHub</span><a href="/">返回首页</a>' . ($admin ? '' : '<a href="/admin/login">管理入口</a>') . '</div></div></footer><script src="/assets/site.js?v=' . (int)@filemtime(HOWHUB_ROOT . '/public/assets/site.js') . '" defer></script></body></html>';
 }
 
 function guide_card(array $guide): void
