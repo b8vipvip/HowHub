@@ -54,3 +54,50 @@ try {
 } finally {
     $pdo->rollBack();
 }
+
+// Reuse mv3c's base URL contract and ensure API keys stay encrypted server-side.
+foreach (['https://api.example.com/v1', 'http://127.0.0.1:8080/v1'] as $url) {
+    if (ai_base_url($url) !== $url) throw new RuntimeException('AI 地址解析异常');
+}
+foreach (['http://api.example.com/v1', 'https://user:pass@example.com/v1', 'https://api.example.com/other', 'https://api.example.com/v1?key=abc'] as $bad) {
+    try { ai_base_url($bad); throw new RuntimeException('错误接受危险地址'); }
+    catch (InvalidArgumentException $e) { /* expected */ }
+}
+putenv('HOWHUB_AI_SECRET_KEY=' . str_repeat('ab', 32));
+$secretText = 'sk-example-secret-test';
+$encrypted = ai_encrypt($secretText);
+if (str_contains($encrypted, $secretText) || ai_decrypt($encrypted) !== $secretText) throw new RuntimeException('AI 凭据加解密失败');
+putenv('HOWHUB_AI_SECRET_KEY');
+
+// The sample copied from Yuque uses ne-card, escaped angle brackets and five remote images.
+$urls = [];
+$markup = '\\<div class="ne-viewer-body">\\<ne-p>第一步：打开电视音乐会员页面\\</ne-p>';
+for ($i = 0; $i < 5; ++$i) {
+    $url = 'https://cdn.nlark.com/yuque/0/2025/png/example-' . ($i + 1) . '.png';
+    $urls[] = $url;
+    $markup .= '\\<ne-card>\\<img src="' . str_replace('://', '\\://', $url) . '">\\</ne-card>';
+}
+$markup .= '\\<script>document.cookie</script>\\<ne-p>不要用微信扫码\\</ne-p>\\</div>';
+$source = import_prepare_source($markup);
+if (count($source['images']) !== 5 || !str_contains($source['content'], '不要用微信') || str_contains($source['content'], 'document.cookie')) {
+    throw new RuntimeException('网页源码解析未完整保留图片或没有剔除脚本');
+}
+foreach ($urls as $i => $url) {
+    if ($source['images'][$i]['src'] !== $url || !str_contains($source['content'], '[[IMAGE_' . ($i + 1) . ']]')) {
+        throw new RuntimeException('网页素材图片顺序/网址失真');
+    }
+}
+$draft = import_safe_result([
+    'title' => '电视音乐教程',
+    'summary' => '演示步骤',
+    'tags' => '雷鸟,酷狗',
+    'body_html' => '<h2>第一步</h2><p>打开电视</p>' . implode('', array_map(static fn($n) => '<p>[[IMAGE_' . $n . ']]</p>', range(1, 5))),
+], $source);
+if (substr_count($draft['body'], '<img ') !== 5 || $draft['cover'] !== $urls[0]) throw new RuntimeException('AI 图文草稿缺图');
+$dangerousDraft = import_safe_result([
+    'title' => '安全教程', 'body_html' => '<script>alert(1)</script><h2>步骤</h2><p>内容文字</p><img src="https://attacker.example/sneak.png">[[IMAGE_1]]',
+], $source);
+if (str_contains($dangerousDraft['body'], 'attacker.example') || str_contains($dangerousDraft['body'], '<script')) {
+    throw new RuntimeException('AI 模型输出绕过安全清理');
+}
+echo "HowHub AI import smoke passed: base URL / key encryption / five Yuque images / sanitization\n";

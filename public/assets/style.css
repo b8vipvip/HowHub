@@ -47,3 +47,12 @@ a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}b
 .media-pick-card span:last-child{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
 @media(max-width:780px){.media-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.media-dialog-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.media-grid{grid-template-columns:1fr}.media-dialog{padding:12px}}
+
+/* AI-assisted source import, intentionally outside the editor form */
+.ai-import-panel{margin-bottom:20px;display:grid;gap:12px;background:linear-gradient(125deg,#faf9ff,#fff 65%)}
+.ai-import-panel h2{font-size:19px;margin:3px 0 6px}.ai-import-panel .muted{margin:0}
+.ai-import-kicker{color:var(--violet);font-size:11px;font-weight:800;letter-spacing:.1em}
+.ai-import-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ai-import-actions .button{white-space:nowrap}.ai-import-actions [role=status]{flex:1;min-width:180px}
+.ai-import-actions button:disabled{opacity:.5;cursor:wait}
+.ai-import-panel textarea{resize:vertical;min-height:110px;font-family:ui-monospace,Consolas,monospace;line-height:1.55}

@@ -319,14 +319,68 @@
     await uploadFile(picker.files?.[0], imageTarget);
     picker.value = '';
   });
-  editor.addEventListener('paste', event => {
+  // Other webpages put both text/html and text/plain into the clipboard. Clean rich HTML
+  // on the server before inserting it; never allow foreign scripts/styles/event handlers.
+  editor.addEventListener('paste', async event => {
     const file = [...(event.clipboardData?.files || [])].find(item => item.type.startsWith('image/'));
     if (file) {
       event.preventDefault();
       rememberSelection();
-      uploadFile(file);
+      await uploadFile(file);
+      return;
+    }
+    const html = event.clipboardData?.getData('text/html') || '';
+    if (!html) return; // Browser keeps its native plain-text paste behaviour.
+    event.preventDefault();
+    if (html.length > 300000) return messageText('复制内容超过 300KB，请分段粘贴。', true);
+    rememberSelection();
+    messageText('正在整理复制的网页图文…');
+    const data = new FormData();
+    data.append('csrf_token', token);
+    data.append('html', html);
+    try {
+      const response = await fetch('/admin/import/clean', { method: 'POST', credentials: 'same-origin', body: data });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || '解析失败');
+      const template = document.createElement('template');
+      template.innerHTML = result.html;
+      insertNode(template.content);
+      selectImage(null);
+      const images = editor.querySelectorAll('img').length;
+      messageText(`网页图文已粘贴（正文现有 ${images} 张图片），请保存文章。若外链图片失效，可从素材库替换。`);
+    } catch (error) {
+      messageText('网页粘贴处理失败：' + error.message + '。可使用上方 AI 导入网页代码。', true);
     }
   });
+
+  const importButton = document.getElementById('ai-import-generate');
+  const importInput = document.getElementById('ai-source-html');
+  const importStatus = document.getElementById('ai-import-status');
+  if (importButton && importInput && importStatus) {
+    importButton.addEventListener('click', async () => {
+      const source = importInput.value.trim();
+      if (!source) { importStatus.textContent = '请先粘贴网页代码或文章内容。'; importInput.focus(); return; }
+      if (new Blob([source]).size > 300000) { importStatus.textContent = '内容不能超过 300KB。'; return; }
+      if (form.querySelector('[name="id"]')?.value !== '0' &&
+          !window.confirm('AI 将创建一篇新的草稿，不修改当前正在编辑的文章。确定继续？')) return;
+      const data = new FormData();
+      data.append('csrf_token', token);
+      data.append('html', source);
+      importButton.disabled = true;
+      importStatus.textContent = 'AI 正在提取步骤、图片顺序和标题，生成后会创建草稿…';
+      try {
+        const response = await fetch('/admin/import/generate', { method: 'POST', body: data, credentials: 'same-origin' });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'AI 未能创建草稿');
+        importStatus.textContent = `已创建草稿，保留 ${result.image_count} 张原图，正在打开编辑器…`;
+        window.location.assign(result.edit_url);
+      } catch (err) {
+        importStatus.textContent = 'AI 导入失败：' + (err.message || '网络错误') + '（原始输入仍保留，可重试）';
+      } finally {
+        importButton.disabled = false;
+      }
+    });
+  }
   cover.addEventListener('change', () => {
     if (/^(https?:\/\/|\/uploads\/)/.test(cover.value)) setCover(cover.value);
     else preview.replaceChildren();

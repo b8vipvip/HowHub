@@ -32,3 +32,18 @@ blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
   -d 'title=should-not-save' http://127.0.0.1:8099/admin/guides/save)
 test "$blocked" = "419"
 echo 'HowHub e2e passed: homepage / guide / search / admin / editor / media / CSRF'
+# AI settings and cross-site paste are admin-only and CSRF-protected.
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'AI 供应商'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'ai-source-html'
+html=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'html=<h2 onclick="bad()">标题</h2><script>bad()</script><img src="https://example.com/image.png">' \
+  http://127.0.0.1:8099/admin/import/clean)
+php -r '$r=json_decode($argv[1],true); if(!$r["ok"] || strpos($r["html"],"<h2>")===false || strpos($r["html"],"<script")!==false || strpos($r["html"],"<img")===false) exit(1);' "$html"
+blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
+  -d 'html=<p>some source</p>' http://127.0.0.1:8099/admin/import/generate)
+test "$blocked" = "419"
+unconfigured=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
+  --data-urlencode "csrf_token=$token" --data-urlencode 'html=<p>some source</p>' \
+  http://127.0.0.1:8099/admin/import/generate)
+test "$unconfigured" = "400"
+echo 'HowHub AI import e2e passed: settings / editor / HTML paste / CSRF / missing config'

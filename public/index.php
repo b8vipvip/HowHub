@@ -165,6 +165,89 @@ if ($path === '/admin/login') {
 
 require_admin();
 
+// AI configuration is admin-only. The client never receives decrypted API credentials.
+if ($path === '/admin/ai-settings') {
+    if ($method === 'POST') {
+        check_csrf();
+        try {
+            ai_save_config($_POST);
+            flash('AI 供应商配置已加密保存。');
+        } catch (Throwable $e) {
+            flash($e->getMessage(), 'error');
+        }
+        redirect_to('/admin/ai-settings');
+    }
+    $ai = ai_config();
+    page_start('AI 供应商设置', '', true);
+    echo '<main class="shell admin-main">';
+    admin_heading('AI PROVIDER', 'AI 供应商', '采用 mv3c 使用的 OpenAI 兼容 chat2api 接口；单独配置 HowHub 的服务端密钥。');
+    echo '<section class="admin-panel settings-panel"><form method="post" action="/admin/ai-settings" class="stack-form">' . csrf_input();
+    echo '<label>API 基础地址（以 /v1 结尾）<input required name="base_url" type="url" maxlength="2048" placeholder="https://api.example.com/v1" value="' . h($ai['base_url']) . '"></label>';
+    echo '<label>API Key <input name="api_key" type="password" autocomplete="new-password" placeholder="' . ($ai['configured'] ? '已配置；留空则保持原有密钥' : '输入 API Key') . '" maxlength="4096"></label>';
+    echo '<p class="muted">密钥使用 AES-256-GCM 加密后存放在 SQLite，解密密钥仅保存在非公开的 storage 目录；此处永不回显。</p>';
+    echo '<label>导入教程使用的模型 ID <input name="model" id="ai-model-input" required maxlength="128" list="ai-model-options" value="' . h($ai['model']) . '"></label>';
+    echo '<datalist id="ai-model-options">';
+    foreach ($ai['models'] as $model) echo '<option value="' . h($model) . '"></option>';
+    echo '</datalist><button class="button primary" type="submit">保存供应商配置</button></form><hr>';
+    echo '<form id="ai-model-sync" method="post" action="/admin/ai/models">' . csrf_input() . '<button type="submit" class="button secondary">从供应商发现模型</button></form>';
+    echo '<p class="muted">首次配置先保存地址及密钥，再点击发现模型。模型发现不会覆盖你手动选择的当前模型。</p>';
+    echo '<p><strong>当前状态：</strong>' . ($ai['configured'] ? '已配置' : '未配置') . '</p>';
+    echo '<p class="muted">提交网页代码会把其中的文本和图片占位符发送给配置的 AI 供应商。请勿粘贴密码、验证码或其它秘密。AI 生成后只创建草稿，不自动发布。</p>';
+    echo '</section></main>';
+    page_end(true);
+    exit;
+}
+
+if ($path === '/admin/ai/models' && $method === 'POST') {
+    check_csrf();
+    try {
+        $models = ai_sync_models();
+        flash('已从 AI 供应商同步 ' . count($models) . ' 个模型，请在上方模型框中选择并保存。');
+    } catch (Throwable $e) { flash($e->getMessage(), 'error'); }
+    redirect_to('/admin/ai-settings');
+}
+
+// Safe HTML normalization for cross-website copy/paste in contenteditable.
+if ($path === '/admin/import/clean' && $method === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    try {
+        check_csrf();
+        $html = (string)($_POST['html'] ?? '');
+        if (strlen($html) > 300000) throw new InvalidArgumentException('粘贴内容不得超过 300KB');
+        $html = str_replace(['https\\://','http\\://'], ['https://','http://'], $html);
+        $cleaned = sanitize_content($html);
+        echo json_encode(['ok'=>true, 'html'=>$cleaned], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['ok'=>false, 'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+// Independent new draft: never overwrite a published article on AI import.
+if ($path === '/admin/import/generate' && $method === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    try {
+        check_csrf();
+        $attempts = $_SESSION['ai_import_attempts'] ?? [];
+        $attempts = array_values(array_filter($attempts, static fn($t) => is_int($t) && $t > time() - 600));
+        if (count($attempts) >= 10) throw new RuntimeException('AI 导入操作过于频繁，请十分钟后重试');
+        $attempts[] = time();
+        $_SESSION['ai_import_attempts'] = $attempts;
+        $source = import_prepare_source((string)($_POST['html'] ?? ''));
+        $draft = ai_generate_guide($source);
+        $id = import_create_draft($pdo, $draft);
+        echo json_encode(['ok'=>true, 'edit_url'=>'/admin/guides/edit?id='.$id, 'image_count'=>count($source['images'])], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        error_log('[HowHub AI import] ' . $e->getMessage());
+        http_response_code(400);
+        echo json_encode(['ok'=>false, 'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+    exit;
+}
+
 if ($path === '/admin/logout' && $method === 'POST') {
     check_csrf();
     $_SESSION = [];
@@ -333,7 +416,8 @@ if (($path === '/admin/guides/new' || $path === '/admin/guides/edit') && $method
     page_start($id ? '编辑教程' : '新建教程', '', true);
     echo '<main class="shell admin-main">';
     admin_heading('EDITOR', $id ? '编辑教程' : '新建教程', '用图文结合的方式，清楚地描述每一步操作。', '<a class="button secondary" href="/admin/guides">← 返回列表</a>');
-    echo '<form id="guide-form" method="post" action="/admin/guides/save" class="editor-layout">' . csrf_input() . '<input type="hidden" name="id" value="' . (int)$guide['id'] . '"><div class="editor-main admin-panel"><label class="field">教程标题<input name="title" required maxlength="180" placeholder="例如：TCL雷鸟电视查看和绑定酷狗账号" value="' . h($guide['title']) . '"></label><label class="field">简短介绍<textarea name="summary" rows="3" maxlength="450" placeholder="一句话告诉读者，这篇教程可以解决什么问题">' . h($guide['summary']) . '</textarea></label><div class="field"><span class="field-title">教程正文</span><p class="field-help">点击正文图片后可替换、删除、修改大小和顺序，也可以从素材库选择图片或附件。</p><div class="editor-toolbar" role="toolbar" aria-label="编辑器工具栏"><button type="button" data-command="formatBlock" data-value="h2">标题 H2</button><button type="button" data-command="formatBlock" data-value="h3">小标题 H3</button><button type="button" data-command="bold"><b>B</b></button><button type="button" data-command="italic"><i>I</i></button><button type="button" data-command="insertUnorderedList">• 列表</button><button type="button" data-command="insertOrderedList">1. 列表</button><button type="button" data-action="link">链接</button><button type="button" data-action="image">上传图片</button><button type="button" data-action="library">素材库</button><button type="button" data-action="replace-image">替换选中图片</button><button type="button" data-action="remove-image">删除选中图片</button><button type="button" data-action="image-alt">图片描述</button><button type="button" data-action="image-size">图片大小</button><button type="button" data-action="image-up">图片上移</button><button type="button" data-action="image-down">图片下移</button><button type="button" data-action="remote-image">图片网址</button><button type="button" data-command="removeFormat">清除格式</button></div><div class="editor-area article-content" id="rich-editor" contenteditable="true" data-placeholder="从这里开始写教程，可以直接粘贴文本或图片…">' . sanitize_content($guide['body_html']) . '</div><textarea name="body_html" id="body-html" hidden></textarea><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="image-picker" hidden><div class="editor-message" id="editor-message" aria-live="polite"></div><dialog id="media-dialog" class="media-dialog"><div class="dialog-header"><h3>从素材库中选择</h3><button type="button" id="media-dialog-close" class="button secondary">关闭</button></div><div class="media-dialog-tools"><button type="button" data-media-kind="all">全部</button><button type="button" data-media-kind="image">图片</button><button type="button" data-media-kind="file">文档</button><label class="button secondary media-upload-label">＋ 上传<input id="dialog-upload" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" multiple hidden></label></div><div id="media-dialog-list" class="media-dialog-list">正在加载…</div></dialog></div></div><aside class="editor-side"><div class="admin-panel editor-side-panel"><h3>发布设置</h3><label class="field">状态<select name="status"><option value="draft" ' . ($guide['status'] === 'draft' ? 'selected' : '') . '>草稿（不公开）</option><option value="published" ' . ($guide['status'] === 'published' ? 'selected' : '') . '>正式发布</option></select></label><label class="field">内容分类<select name="category_id"><option value="">未分类</option>';
+    echo '<section class="admin-panel ai-import-panel"><div><span class="ai-import-kicker">网页复制 · AI 整理</span><h2>导入网页图文教程</h2><p class="muted">可以直接从其他网页复制图文到下方正文，也可以把完整 HTML（包括语雀 ne-p / ne-card 代码）粘贴在这里，通过 AI 提取标题、步骤与配图位置，自动创建一个新的未发布草稿。</p></div><label class="field">粘贴网页 HTML / 网页代码 / 文章内容<textarea id="ai-source-html" rows="5" maxlength="300000" placeholder="在这里粘贴 &lt;div class=&quot;ne-viewer-body&quot;&gt;... 或整个网页代码"></textarea></label><div class="ai-import-actions"><button id="ai-import-generate" class="button primary" type="button">AI 解析并创建文章草稿</button><a href="/admin/ai-settings" class="button secondary">配置 AI 供应商</a><span id="ai-import-status" class="muted" role="status"></span></div><p class="field-help">导入时会将素材内容提交到你配置的 AI 服务；不会发送管理员密码。生成结果保存为新的草稿，不覆盖当前文章，也不会公开发布。外链图片需另行转存到本站。</p></section>';
+    echo '<form id="guide-form" method="post" action="/admin/guides/save" class="editor-layout">' . csrf_input() . '<input type="hidden" name="id" value="' . (int)$guide['id'] . '"><div class="editor-main admin-panel"><label class="field">教程标题<input name="title" required maxlength="180" placeholder="例如：TCL雷鸟电视查看和绑定酷狗账号" value="' . h($guide['title']) . '"></label><label class="field">简短介绍<textarea name="summary" rows="3" maxlength="450" placeholder="一句话告诉读者，这篇教程可以解决什么问题">' . h($guide['summary']) . '</textarea></label><div class="field"><span class="field-title">教程正文</span><p class="field-help">支持直接粘贴其他网页复制的图文（保留标题、段落、列表、表格与图片链接）。图片可以替换、删除、调整大小与顺序，也可以使用素材库。</p><div class="editor-toolbar" role="toolbar" aria-label="编辑器工具栏"><button type="button" data-command="formatBlock" data-value="h2">标题 H2</button><button type="button" data-command="formatBlock" data-value="h3">小标题 H3</button><button type="button" data-command="bold"><b>B</b></button><button type="button" data-command="italic"><i>I</i></button><button type="button" data-command="insertUnorderedList">• 列表</button><button type="button" data-command="insertOrderedList">1. 列表</button><button type="button" data-action="link">链接</button><button type="button" data-action="image">上传图片</button><button type="button" data-action="library">素材库</button><button type="button" data-action="replace-image">替换选中图片</button><button type="button" data-action="remove-image">删除选中图片</button><button type="button" data-action="image-alt">图片描述</button><button type="button" data-action="image-size">图片大小</button><button type="button" data-action="image-up">图片上移</button><button type="button" data-action="image-down">图片下移</button><button type="button" data-action="remote-image">图片网址</button><button type="button" data-command="removeFormat">清除格式</button></div><div class="editor-area article-content" id="rich-editor" contenteditable="true" data-placeholder="从这里开始写教程，可以直接粘贴文本或图片…">' . sanitize_content($guide['body_html']) . '</div><textarea name="body_html" id="body-html" hidden></textarea><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="image-picker" hidden><div class="editor-message" id="editor-message" aria-live="polite"></div><dialog id="media-dialog" class="media-dialog"><div class="dialog-header"><h3>从素材库中选择</h3><button type="button" id="media-dialog-close" class="button secondary">关闭</button></div><div class="media-dialog-tools"><button type="button" data-media-kind="all">全部</button><button type="button" data-media-kind="image">图片</button><button type="button" data-media-kind="file">文档</button><label class="button secondary media-upload-label">＋ 上传<input id="dialog-upload" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" multiple hidden></label></div><div id="media-dialog-list" class="media-dialog-list">正在加载…</div></dialog></div></div><aside class="editor-side"><div class="admin-panel editor-side-panel"><h3>发布设置</h3><label class="field">状态<select name="status"><option value="draft" ' . ($guide['status'] === 'draft' ? 'selected' : '') . '>草稿（不公开）</option><option value="published" ' . ($guide['status'] === 'published' ? 'selected' : '') . '>正式发布</option></select></label><label class="field">内容分类<select name="category_id"><option value="">未分类</option>';
     foreach ($categories as $cat) echo '<option value="' . (int)$cat['id'] . '" ' . ((int)$guide['category_id'] === (int)$cat['id'] ? 'selected' : '') . '>' . h($cat['name']) . '</option>';
     echo '</select></label><label class="check-field"><input type="checkbox" name="featured" value="1" ' . ($guide['featured'] ? 'checked' : '') . '> 在列表中优先展示</label><button class="button primary full" type="submit">保存教程 →</button>';
     if ($id && $guide['status'] === 'published') echo '<a href="/guide/' . h(rawurlencode($guide['slug'])) . '" target="_blank" class="button secondary full">预览已发布页面 ↗</a>';
