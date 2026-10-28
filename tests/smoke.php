@@ -126,7 +126,7 @@ try {
 }
 echo "HowHub source/AI optimize smoke passed: styles / source / image order / sanitization\n";
 
-$linked = ai_prepare_optimization('<p>原文有<a href="/file/12">说明书</a></p>');
+$linked = ai_prepare_optimization('<p>这里可以下载完整的<a href="/file/12">产品操作说明书</a>供用户查阅</p>');
 try {
     ai_safe_optimized_html(['body_html' => '<p>说明书链接被删</p>'], $linked);
     throw new RuntimeException('应拒绝 AI 丢失原链接');
