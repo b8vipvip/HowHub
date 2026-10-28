@@ -42,6 +42,11 @@ if ($path === '/v1/chat/completions') {
     }
     $input = (string)($post['messages'][1]['content'] ?? '');
     $stream = $post['stream'] === true;
+    if (!$stream && str_contains($input, 'CI_SLOW_IMPORT_2026')) {
+        $signal = getenv('HOWHUB_CI_SLOW_SIGNAL') ?: '';
+        if ($signal !== '') file_put_contents($signal, 'ready');
+        usleep(3500000);
+    }
     if (str_contains($input, '[[HH_IMAGE_01]]')) {
         $html = '<div class="hh-step"><h2 style="color:#6753cc">优化后的步骤</h2><p class="hh-tip">按原顺序完成绑定</p><figure>[[HH_IMAGE_01]]</figure>';
         if (str_contains($input, '[[HH_IMAGE_02]]')) $html .= '<figure>[[HH_IMAGE_02]]</figure>';

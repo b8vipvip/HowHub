@@ -13,9 +13,9 @@ function page_start(string $title, string $description = '', bool $admin = false
     if ($showHeader) {
     echo '<header class="topbar"><div class="shell nav-inner"><a href="/" class="brand" aria-label="HowHub 首页"><span class="brand-logo"><span class="brand-mark">H</span></span><span>' . h($site) . '</span><span class="brand-dot">.</span></a><nav class="nav-links" aria-label="主导航">' . $nav . '</nav><div class="nav-right">' . $auth . '</div></div></header>';
     }
-    if (isset($_SESSION['flash'])) {
-        $message = $_SESSION['flash'];
-        unset($_SESSION['flash']);
+    if (isset($GLOBALS['howhub_read_flash']) || isset($_SESSION['flash'])) {
+        $message = $GLOBALS['howhub_read_flash'] ?? $_SESSION['flash'];
+        unset($GLOBALS['howhub_read_flash'], $_SESSION['flash']);
         echo '<div class="shell"><div class="flash flash-' . h($message['type']) . '">' . h($message['text']) . '</div></div>';
     }
 }

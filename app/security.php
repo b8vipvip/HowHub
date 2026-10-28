@@ -27,6 +27,18 @@ function check_csrf(): void
     }
 }
 
+/** Release session lock on read-only requests after saving CSRF and flash. */
+function howhub_release_read_session(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) return;
+    csrf_token();
+    if (isset($_SESSION['flash'])) {
+        $GLOBALS['howhub_read_flash'] = $_SESSION['flash'];
+        unset($_SESSION['flash']);
+    }
+    session_write_close();
+}
+
 function redirect_to(string $path): never
 {
     header('Location: ' . $path, true, 303);

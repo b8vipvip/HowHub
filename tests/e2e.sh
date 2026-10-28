@@ -102,7 +102,9 @@ unconfigured=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
 test "$unconfigured" = "400"
 echo 'HowHub AI import e2e passed: settings / editor / HTML paste / CSRF / missing config'
 # Fake chat2api upstream: verify encrypted provider config, model discovery, AI-created draft.
-php -S 127.0.0.1:8100 tests/mock_ai.php >/tmp/howhub-mock-ai.log 2>&1 &
+slow_signal=$(mktemp)
+rm -f "$slow_signal"
+HOWHUB_CI_SLOW_SIGNAL="$slow_signal" php -S 127.0.0.1:8100 tests/mock_ai.php >/tmp/howhub-mock-ai.log 2>&1 &
 mock_pid=$!
 trap 'kill "$server_pid" "$mock_pid" 2>/dev/null || true; rm -f "$login" "$jar"' EXIT
 for attempt in $(seq 1 30); do
@@ -188,3 +190,36 @@ blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
 test "$blocked" = '419'
 echo 'HowHub streaming AI e2e passed: raw HTML stream + optimize / final validation / auth / CSRF'
 
+
+# Exercise the real application with three concurrent PHP workers and the
+# SAME administrator cookie while a non-stream AI request takes 3.5 seconds.
+workers_log=$(mktemp)
+slow_result=$(mktemp)
+PHP_CLI_SERVER_WORKERS=3 php -S 127.0.0.1:8101 -t public public/router.php >"$workers_log" 2>&1 &
+workers_pid=$!
+trap 'kill "$server_pid" "$mock_pid" "$workers_pid" 2>/dev/null || true; rm -f "$login" "$jar" "$slow_signal" "$workers_log" "$slow_result"' EXIT
+for attempt in $(seq 1 40); do
+  curl -fsS --max-time 1 http://127.0.0.1:8101/healthz >/dev/null 2>&1 && break
+  sleep .1
+done
+curl -fsS --max-time 2 http://127.0.0.1:8101/healthz >/dev/null
+curl -fsS --max-time 15 -b "$jar" \
+  --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'html=<p>CI_SLOW_IMPORT_2026 操作步骤</p>' \
+  http://127.0.0.1:8101/admin/import/generate > "$slow_result" &
+slow_pid=$!
+for attempt in $(seq 1 60); do
+  [[ -f "$slow_signal" ]] && break
+  sleep .1
+done
+if [[ ! -f "$slow_signal" ]]; then
+  echo 'Slow AI fixture did not start' >&2
+  wait "$slow_pid" || true
+  exit 1
+fi
+# Both GET routes must finish before the deliberately delayed AI response.
+test "$(curl -sS --max-time 2 -b "$jar" -o /dev/null -w '%{http_code}' http://127.0.0.1:8101/admin)" = 200
+test "$(curl -sS --max-time 2 -b "$jar" -o /dev/null -w '%{http_code}' http://127.0.0.1:8101/)" = 200
+wait "$slow_pid"
+php -r '$j=json_decode(file_get_contents($argv[1]),true);if (!$j || empty($j["ok"])) exit(1);' "$slow_result"
+echo 'Session concurrency passed: slow non-stream AI does not block same-session GET'

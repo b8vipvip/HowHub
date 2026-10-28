@@ -12,6 +12,10 @@ if (is_file(HOWHUB_ROOT . '/storage/.maintenance')) {
     exit('HowHub 正在备份和更新，请稍后刷新页面。');
 }
 
+// A read request must not hold a PHP session file lock during page IO.
+if (in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
+    howhub_release_read_session();
+}
 try {
     $pdo = database();
 } catch (Throwable $e) {
@@ -125,6 +129,7 @@ if ($method === 'GET' && preg_match('~^/file/(\d+)$~', $path, $match)) {
     if (!logged_in() && media_usage_published($pdo, $asset['url']) === 0) error_page(404, '文件不存在', '附件尚未公开发布。');
     $filePath = media_file_path($asset);
     if (!$filePath) error_page(404, '文件不存在', '服务器找不到附件。');
+    if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
     header('Content-Type: application/octet-stream');
     header('X-Content-Type-Options: nosniff');
     header('Content-Disposition: attachment; filename="download"; filename*=UTF-8\'\'' . rawurlencode($asset['original_name']));
@@ -198,6 +203,7 @@ if (($path === '/admin/diagnostics' || $path === '/admin/diagnostics/export') &&
     if (!in_array($level, ['', 'info', 'warning', 'error', 'critical'], true)) $level = '';
     if (!in_array($feature, ['', 'system', 'php', 'http', 'auth', 'guides', 'categories', 'media', 'ai', 'editor', 'settings'], true)) $feature = '';
     if ($path === '/admin/diagnostics/export') {
+        if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
         $items = diag_entries(2000, $level, $feature);
         diag_event('info', 'system', 'logs_export', 'success', ['count' => count($items)]);
         header('Content-Type: application/x-ndjson; charset=utf-8');
@@ -274,11 +280,22 @@ if ($path === '/admin/ai-settings') {
 
 if ($path === '/admin/ai/models' && $method === 'POST') {
     check_csrf();
+    // Model discovery can take time. Release the session, then reopen only to
+    // write the redirect message, protecting concurrent admin browsing.
+    session_write_close();
     try {
         $models = ai_sync_models();
         diag_event('info', 'ai', 'models_sync', 'success', ['count' => count($models)]);
-        flash('已从 AI 供应商同步 ' . count($models) . ' 个模型，请在上方模型框中选择并保存。');
-    } catch (Throwable $e) { diag_exception('ai', 'models_sync', $e); flash($e->getMessage(), 'error'); }
+        $notice = '已从 AI 供应商同步 ' . count($models) . ' 个模型，请在上方模型框中选择并保存。';
+        $noticeType = 'success';
+    } catch (Throwable $e) {
+        diag_exception('ai', 'models_sync', $e);
+        $notice = $e->getMessage();
+        $noticeType = 'error';
+    }
+    session_start();
+    if (!logged_in()) redirect_to('/admin/login');
+    flash($notice, $noticeType);
     redirect_to('/admin/ai-settings');
 }
 
@@ -379,6 +396,7 @@ if ($path === '/admin/guides/optimize' && $method === 'POST') {
         if (count($attempts) >= 6) throw new RuntimeException('AI 优化调用频繁，请 10 分钟后再试');
         $attempts[] = time();
         $_SESSION['ai_optimize_attempts'] = $attempts;
+        session_write_close(); // Never hold session lock during AI network calls.
         $result = ai_optimize_current_guide((string)($_POST['html'] ?? ''), (string)($_POST['title'] ?? ''));
         diag_event('info', 'ai', 'optimize', 'success', ['count' => $result['image_count'] ?? 0]);
         echo json_encode(['ok' => true] + $result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
@@ -403,6 +421,7 @@ if ($path === '/admin/import/generate' && $method === 'POST') {
         if (count($attempts) >= 10) throw new RuntimeException('AI 导入操作过于频繁，请十分钟后重试');
         $attempts[] = time();
         $_SESSION['ai_import_attempts'] = $attempts;
+        session_write_close();
         $source = import_prepare_source((string)($_POST['html'] ?? ''));
         $result = ai_generate_import_html($source);
         diag_event('info', 'ai', 'html_import', 'success', ['count' => $result['image_count']]);
@@ -429,6 +448,7 @@ if ($path === '/admin/upload' && $method === 'POST') {
         check_csrf();
         $file = $_FILES['asset'] ?? $_FILES['image'] ?? null;
         if (!is_array($file)) throw new RuntimeException('没有收到上传文件');
+        session_write_close();
         $asset = media_upload($pdo, $file);
         diag_event('info', 'media', 'upload', 'success', ['asset_id' => $asset['id'], 'kind' => $asset['kind'], 'size_bytes' => $asset['byte_size']]);
         echo json_encode(['ok' => true, 'url' => $asset['url'], 'kind' => $asset['kind'], 'asset' => $asset], JSON_UNESCAPED_UNICODE);
