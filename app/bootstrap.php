@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 const HOWHUB_ROOT = __DIR__ . '/..';
 date_default_timezone_set('Asia/Shanghai');
+require_once __DIR__ . '/diagnostics.php';
+diag_install();
 
 if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE) {
     ini_set('session.use_strict_mode', '1');

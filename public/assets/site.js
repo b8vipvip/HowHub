@@ -1,4 +1,16 @@
 (() => {
+  // Best-effort browser diagnostics. Never submit error text, user content or tokens.
+  function reportClientFailure(feature, action) {
+    const csrf = document.querySelector('input[name="csrf_token"]')?.value;
+    if (!csrf) return;
+    try {
+      const data = new FormData();
+      data.append('csrf_token', csrf);
+      data.append('feature', feature);
+      data.append('action', action);
+      fetch('/admin/diagnostics/client', { method: 'POST', credentials: 'same-origin', body: data, keepalive: true }).catch(() => {});
+    } catch (_) { /* diagnostics must not interrupt editing */ }
+  }
   document.querySelectorAll('form[data-confirm]').forEach(form => {
     form.addEventListener('submit', event => {
       if (!window.confirm(form.dataset.confirm || '确认执行操作？')) event.preventDefault();
@@ -38,7 +50,7 @@
       const errors = [];
       for (const file of files) {
         status.textContent = `正在上传 ${saved + errors.length + 1}/${files.length}：${file.name}`;
-        try { await uploadAsset(file, token); saved++; } catch (err) { errors.push(`${file.name}: ${err.message}`); }
+        try { await uploadAsset(file, token); saved++; } catch (err) { errors.push(`${file.name}: ${err.message}`); reportClientFailure('media', 'upload_ui'); }
       }
       status.textContent = `成功 ${saved} 个` + (errors.length ? `；失败 ${errors.length} 个：${errors.join('；')}` : '，正在刷新列表');
       if (saved) window.location.reload();
@@ -118,6 +130,7 @@
       setSourceMode(false);
       messageText('已切换回可视化编辑，危险脚本和不支持的 CSS 已被清理。');
     } catch (err) {
+      reportClientFailure('editor', 'source_switch_ui');
       messageText('HTML 校验失败：' + (err.message || '未知错误') + '；源码仍保留。', true);
     } finally {
       sourceToggle.disabled = false;
@@ -136,6 +149,7 @@
       previewDialog.showModal();
       messageText('预览的是编辑器当前内容，没有保存或发布。');
     } catch (err) {
+      reportClientFailure('editor', 'preview_ui');
       messageText('预览失败：' + (err.message || '未知错误'), true);
     } finally { previewButton.disabled = false; }
   });
@@ -163,6 +177,7 @@
       sourceEditor.focus();
       messageText(`AI 优化 HTML 已填入源码编辑器，已保留 ${data.image_count} 张原图。请预览后再保存；可以撤销本次优化。`);
     } catch (err) {
+      reportClientFailure('ai', 'optimize_ui');
       messageText('AI 优化未应用：' + (err.message || '网络错误') + '；原有正文保留。', true);
     } finally { optimizeButton.disabled = false; }
   });
@@ -278,6 +293,7 @@
       else insertFile(asset.url, asset.original_name);
       messageText('上传成功；请保存教程以应用内容修改。');
     } catch (error) {
+      reportClientFailure('media', 'upload_ui');
       messageText(error.message || '上传失败，请重试。', true);
     }
   }
@@ -333,7 +349,7 @@
         });
         dialogList.append(item);
       });
-    } catch (err) { dialogList.textContent = err.message; }
+    } catch (err) { reportClientFailure('media', 'list_ui'); dialogList.textContent = err.message; }
   }
 
   document.querySelectorAll('[data-media-kind]').forEach(button => {
@@ -352,7 +368,7 @@
         const asset = await uploadAsset(file, token);
         if (libraryTarget !== 'body' && asset.kind !== 'image') throw new Error('这里只能选择图片');
         success++;
-      } catch (err) { messageText(`${file.name}：${err.message}`, true); }
+      } catch (err) { reportClientFailure('media', 'upload_ui'); messageText(`${file.name}：${err.message}`, true); }
     }
     dialogUpload.value = '';
     if (success) await loadLibrary(libraryTarget !== 'body' ? 'image' : 'all');
@@ -456,6 +472,7 @@
       const images = editor.querySelectorAll('img').length;
       messageText(`网页图文已粘贴（正文现有 ${images} 张图片），请保存文章。若外链图片失效，可从素材库替换。`);
     } catch (error) {
+      reportClientFailure('editor', 'paste_ui');
       messageText('网页粘贴处理失败：' + error.message + '。可使用上方 AI 导入网页代码。', true);
     }
   });
@@ -482,6 +499,7 @@
         importStatus.textContent = `已创建草稿，保留 ${result.image_count} 张原图，正在打开编辑器…`;
         window.location.assign(result.edit_url);
       } catch (err) {
+        reportClientFailure('ai', 'draft_generate_ui');
         importStatus.textContent = 'AI 导入失败：' + (err.message || '网络错误') + '（原始输入仍保留，可重试）';
       } finally {
         importButton.disabled = false;

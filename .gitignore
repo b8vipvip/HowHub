@@ -10,3 +10,5 @@
 .vscode/
 .env
 /storage/ai-secret.key
+
+/storage/diagnostics/

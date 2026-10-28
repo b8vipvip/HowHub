@@ -14,6 +14,8 @@ jobs:
           coverage: none
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Diagnostics unit tests
+        run: php tests/diagnostics.php
       - name: Smoke tests
         run: php tests/smoke.php
       - name: HTTP and admin end-to-end checks

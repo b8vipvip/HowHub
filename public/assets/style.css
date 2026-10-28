@@ -85,3 +85,12 @@ a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}b
 .editor-preview-dialog .dialog-header p{margin:5px 0 0}
 .editor-preview-dialog iframe{width:100%;height:calc(100% - 72px);min-height:300px;border:1px solid #e7e9ef;border-radius:11px;background:white}
 @media(max-width:600px){.editor-preview-dialog{padding:10px}.editor-source{min-height:350px;font-size:12px;padding:12px}.editor-preview-dialog iframe{height:calc(100% - 85px)}}
+
+/* Private diagnostics dashboard */
+.diag-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:16px 0}
+.diag-summary{display:grid;gap:9px;min-height:115px}.diag-summary>span{font-size:12px;color:#8590a3}.diag-summary strong{font-size:22px;word-break:break-word}.diag-summary small{font-size:11px;color:#8995a7}
+.diag-checks{margin-bottom:18px}.diag-checks h2{font-size:17px;margin-bottom:12px}.diag-check-grid{display:flex;gap:9px;flex-wrap:wrap}.diag-check{border:1px solid #e5e8f2;border-radius:20px;font-size:12px;padding:6px 11px;background:#fafbff}
+.diag-good{color:#187857!important}.diag-bad{color:#d04a53!important}
+.diag-filters{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.diag-filters label{display:grid;gap:5px;font-size:12px;color:#6d7891}.diag-filters select{padding:9px 12px;border-radius:8px;border:1px solid #dfe4ee;background:#fff}.diag-filters .button{height:39px}
+.diag-table{font-size:12px}.diag-table th,.diag-table td{padding:11px 9px}.diag-table td small{font-size:11px;color:#8992a6}.diag-nowrap{white-space:nowrap}.diag-level{font-weight:700;font-size:11px;border-radius:7px;padding:5px 8px;background:#eef0ff;color:#6254cc}.diag-warning{background:#fff3db;color:#9a681c}.diag-error,.diag-critical{background:#ffe9ed;color:#b42a44}.diag-table details{max-width:420px}.diag-table details summary{cursor:pointer;white-space:nowrap;color:#6653d4}.diag-table details pre{white-space:pre-wrap;word-break:break-all;font-size:11px;color:#4b5670;background:#f6f8fc;padding:10px;border-radius:8px;max-height:250px;overflow:auto}
+@media(max-width:960px){.diag-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:540px){.diag-summary-grid{grid-template-columns:1fr}}

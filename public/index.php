@@ -6,7 +6,8 @@ require dirname(__DIR__) . '/app/bootstrap.php';
 try {
     $pdo = database();
 } catch (Throwable $e) {
-    error_log('[HowHub startup] ' . $e->getMessage());
+    diag_exception('system', 'startup', $e);
+    error_log('[HowHub startup] ' . get_class($e));
     http_response_code(503);
     exit('HowHub 初始化失败：请检查 PHP 扩展和 storage 目录权限。详情见服务器 PHP 错误日志。');
 }
@@ -139,6 +140,7 @@ if ($path === '/admin/login') {
         $attempts = array_values(array_filter($attempts, static fn($t) => is_int($t) && $t > time() - 900));
         if (count($attempts) >= 8) {
             $error = '尝试次数过多，请 15 分钟后再试。';
+            diag_event('warning', 'auth', 'rate_limit', 'blocked');
         } else {
             $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
             $stmt->execute([trim((string)($_POST['username'] ?? ''))]);
@@ -148,8 +150,10 @@ if ($path === '/admin/login') {
                 $_SESSION['user_id'] = (int)$user['id'];
                 $_SESSION['login_attempts'] = [];
                 $pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id=?')->execute([$user['id']]);
+                diag_event('info', 'auth', 'login', 'success');
                 redirect_to('/admin');
             }
+            diag_event('warning', 'auth', 'login', 'failure');
             $attempts[] = time();
             $_SESSION['login_attempts'] = $attempts;
             $error = '用户名或密码不正确。';
@@ -165,14 +169,76 @@ if ($path === '/admin/login') {
 
 require_admin();
 
+if ($path === '/admin/diagnostics/client' && $method === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    check_csrf();
+    $count = (int)($_SESSION['diagnostic_client_count'] ?? 0);
+    if ($count >= 30) { http_response_code(429); echo '{"ok":false}'; exit; }
+    $_SESSION['diagnostic_client_count'] = $count + 1;
+    $action = (string)($_POST['action'] ?? 'ui_error');
+    $feature = (string)($_POST['feature'] ?? 'editor');
+    // Only log a controlled event name, no browser-provided error messages or stack traces.
+    diag_event('warning', $feature, $action, 'failure');
+    echo '{"ok":true}';
+    exit;
+}
+
+if (($path === '/admin/diagnostics' || $path === '/admin/diagnostics/export') && $method === 'GET') {
+    $level = (string)($_GET['level'] ?? '');
+    $feature = (string)($_GET['feature'] ?? '');
+    if (!in_array($level, ['', 'info', 'warning', 'error', 'critical'], true)) $level = '';
+    if (!in_array($feature, ['', 'system', 'php', 'http', 'auth', 'guides', 'categories', 'media', 'ai', 'editor', 'settings'], true)) $feature = '';
+    if ($path === '/admin/diagnostics/export') {
+        $items = diag_entries(2000, $level, $feature);
+        diag_event('info', 'system', 'logs_export', 'success', ['count' => count($items)]);
+        header('Content-Type: application/x-ndjson; charset=utf-8');
+        header('Content-Disposition: attachment; filename="howhub-diagnostics-' . gmdate('Ymd-His') . '.jsonl"');
+        header('Cache-Control: private, no-store');
+        header('X-Content-Type-Options: nosniff');
+        foreach (array_reverse($items) as $entry) echo json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
+        exit;
+    }
+    $items = diag_entries(200, $level, $feature);
+    $health = diag_health();
+    page_start('诊断日志', '', true);
+    echo '<main class="shell admin-main">';
+    admin_heading('SYSTEM DIAGNOSTICS', '诊断日志', '查看运行状态、功能事件与报错详情；日志存储在非公开目录并自动轮转。', '<a class="button secondary" href="/admin">← 返回工作台</a>');
+    echo '<section class="diag-summary-grid">';
+    echo '<div class="admin-panel diag-summary"><span>运行版本</span><strong>' . h($health['version']['release']) . '</strong><small>Commit: ' . h($health['version']['commit']) . '</small></div>';
+    echo '<div class="admin-panel diag-summary"><span>服务状态</span><strong class="' . ($health['status'] === 'healthy' ? 'diag-good' : 'diag-bad') . '">' . ($health['status'] === 'healthy' ? '正常' : '需要检查') . '</strong><small>PHP ' . h($health['php']) . ' · ' . h($health['sapi']) . '</small></div>';
+    echo '<div class="admin-panel diag-summary"><span>AI 供应商</span><strong>' . ($health['ai_configured'] ? '已配置' : '未配置') . '</strong><small>仅显示状态，不显示 API Key</small></div>';
+    echo '<div class="admin-panel diag-summary"><span>剩余磁盘空间</span><strong>' . ($health['disk_free_mb'] === null ? '未知' : h((string)$health['disk_free_mb']) . ' MB') . '</strong><small>日志上限约 5 MB</small></div></section>';
+    echo '<section class="admin-panel diag-checks"><h2>运行环境检查</h2><div class="diag-check-grid">';
+    foreach ($health['checks'] as $label => $ok) echo '<span class="diag-check ' . ($ok ? 'diag-good' : 'diag-bad') . '">' . ($ok ? '✓ ' : '✕ ') . h($label) . '</span>';
+    echo '</div></section>';
+    echo '<section class="admin-panel"><div class="panel-head"><h2>最近功能日志</h2><p class="muted">时间为 UTC；已记录操作、HTTP 状态、耗时与请求 ID，不记录正文、密码、密钥或请求体。</p></div>';
+    echo '<form method="get" action="/admin/diagnostics" class="diag-filters"><label>级别 <select name="level">';
+    foreach ([''=>'全部', 'info'=>'信息', 'warning'=>'警告', 'error'=>'错误', 'critical'=>'严重'] as $key => $value) echo '<option value="' . h($key) . '"' . ($level === $key ? ' selected' : '') . '>' . h($value) . '</option>';
+    echo '</select></label><label>模块 <select name="feature">';
+    foreach ([''=>'全部', 'system'=>'系统', 'php'=>'PHP', 'http'=>'HTTP', 'auth'=>'登录安全', 'guides'=>'教程', 'categories'=>'分类', 'media'=>'素材', 'ai'=>'AI', 'editor'=>'编辑器', 'settings'=>'设置'] as $key => $value) echo '<option value="' . h($key) . '"' . ($feature === $key ? ' selected' : '') . '>' . h($value) . '</option>';
+    echo '</select></label><button class="button primary" type="submit">筛选</button><a class="button secondary" href="/admin/diagnostics/export?' . h(http_build_query(['level'=>$level,'feature'=>$feature])) . '">导出日志（最多 2000 条）</a></form>';
+    echo '<div class="responsive-table"><table class="diag-table"><thead><tr><th>时间 UTC</th><th>级别</th><th>功能</th><th>事件 / 结果</th><th>HTTP</th><th>请求 ID / 详情</th></tr></thead><tbody>';
+    if (!$items) echo '<tr><td colspan="6">暂无符合筛选条件的日志。尝试登录、保存文章或调用 AI 后刷新查看。</td></tr>';
+    foreach ($items as $item) {
+        $details = (array)($item['details'] ?? []);
+        echo '<tr><td class="diag-nowrap">' . h($item['time'] ?? '') . '</td><td><span class="diag-level diag-' . h($item['level'] ?? 'info') . '">' . h($item['level'] ?? '') . '</span></td><td>' . h($item['feature'] ?? '') . '</td><td>' . h($item['action'] ?? '') . ' <small>' . h($item['result'] ?? '') . '</small></td><td>' . (int)($item['status_code'] ?? 0) . '</td><td><details><summary>' . h($item['request_id'] ?? '无') . '</summary><pre>' . h(json_encode(['route'=>$item['route'] ?? '', 'method'=>$item['method'] ?? '', 'version'=>$item['version'] ?? [], 'details'=>$details], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE)) . '</pre></details></td></tr>';
+    }
+    echo '</tbody></table></div></section></main>';
+    page_end(true);
+    exit;
+}
+
 // AI configuration is admin-only. The client never receives decrypted API credentials.
 if ($path === '/admin/ai-settings') {
     if ($method === 'POST') {
         check_csrf();
         try {
             ai_save_config($_POST);
+            diag_event('info', 'ai', 'settings_save');
             flash('AI 供应商配置已加密保存。');
         } catch (Throwable $e) {
+            diag_exception('ai', 'settings_save', $e);
             flash($e->getMessage(), 'error');
         }
         redirect_to('/admin/ai-settings');
@@ -202,8 +268,9 @@ if ($path === '/admin/ai/models' && $method === 'POST') {
     check_csrf();
     try {
         $models = ai_sync_models();
+        diag_event('info', 'ai', 'models_sync', 'success', ['count' => count($models)]);
         flash('已从 AI 供应商同步 ' . count($models) . ' 个模型，请在上方模型框中选择并保存。');
-    } catch (Throwable $e) { flash($e->getMessage(), 'error'); }
+    } catch (Throwable $e) { diag_exception('ai', 'models_sync', $e); flash($e->getMessage(), 'error'); }
     redirect_to('/admin/ai-settings');
 }
 
@@ -217,8 +284,10 @@ if ($path === '/admin/import/clean' && $method === 'POST') {
         if (strlen($html) > 300000) throw new InvalidArgumentException('粘贴内容不得超过 300KB');
         $html = str_replace(['https\\://','http\\://'], ['https://','http://'], $html);
         $cleaned = sanitize_content($html);
+        diag_event('info', 'editor', 'paste_clean', 'success', ['size_bytes' => strlen($html)]);
         echo json_encode(['ok'=>true, 'html'=>$cleaned], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     } catch (Throwable $e) {
+        diag_exception('editor', 'paste_clean', $e);
         http_response_code(400);
         echo json_encode(['ok'=>false, 'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
     }
@@ -237,9 +306,10 @@ if ($path === '/admin/guides/optimize' && $method === 'POST') {
         $attempts[] = time();
         $_SESSION['ai_optimize_attempts'] = $attempts;
         $result = ai_optimize_current_guide((string)($_POST['html'] ?? ''), (string)($_POST['title'] ?? ''));
+        diag_event('info', 'ai', 'optimize', 'success', ['count' => $result['image_count'] ?? 0]);
         echo json_encode(['ok' => true] + $result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     } catch (Throwable $e) {
-        error_log('[HowHub AI optimize] ' . get_class($e) . ': ' . $e->getMessage());
+        diag_exception('ai', 'optimize', $e);
         http_response_code(400);
         $error = $e instanceof InvalidArgumentException || $e instanceof RuntimeException
             ? $e->getMessage() : 'AI 优化失败，请稍后重试';
@@ -262,9 +332,10 @@ if ($path === '/admin/import/generate' && $method === 'POST') {
         $source = import_prepare_source((string)($_POST['html'] ?? ''));
         $draft = ai_generate_guide($source);
         $id = import_create_draft($pdo, $draft);
+        diag_event('info', 'ai', 'draft_generate', 'success', ['guide_id' => $id, 'count' => count($source['images'])]);
         echo json_encode(['ok'=>true, 'edit_url'=>'/admin/guides/edit?id='.$id, 'image_count'=>count($source['images'])], JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {
-        error_log('[HowHub AI import] ' . $e->getMessage());
+        diag_exception('ai', 'draft_generate', $e);
         http_response_code(400);
         echo json_encode(['ok'=>false, 'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
@@ -273,6 +344,7 @@ if ($path === '/admin/import/generate' && $method === 'POST') {
 
 if ($path === '/admin/logout' && $method === 'POST') {
     check_csrf();
+    diag_event('info', 'auth', 'logout');
     $_SESSION = [];
     session_regenerate_id(true);
     redirect_to('/admin/login');
@@ -285,8 +357,10 @@ if ($path === '/admin/upload' && $method === 'POST') {
         $file = $_FILES['asset'] ?? $_FILES['image'] ?? null;
         if (!is_array($file)) throw new RuntimeException('没有收到上传文件');
         $asset = media_upload($pdo, $file);
+        diag_event('info', 'media', 'upload', 'success', ['asset_id' => $asset['id'], 'kind' => $asset['kind'], 'size_bytes' => $asset['byte_size']]);
         echo json_encode(['ok' => true, 'url' => $asset['url'], 'kind' => $asset['kind'], 'asset' => $asset], JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {
+        diag_exception('media', 'upload', $e);
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
     }
@@ -312,6 +386,7 @@ if ($path === '/admin/media/action' && $method === 'POST') {
     try {
         if ($action === 'delete') {
             media_delete($pdo, $id);
+            diag_event('info', 'media', 'delete', 'success', ['asset_id' => $id]);
             flash('素材文件已删除。');
         } elseif ($action === 'rename') {
             $name = mb_substr(trim((string)($_POST['name'] ?? '')), 0, 120);
@@ -325,11 +400,13 @@ if ($path === '/admin/media/action' && $method === 'POST') {
             }
             $q = $pdo->prepare('UPDATE media_assets SET original_name=? WHERE id=?');
             $q->execute([$name, $id]);
+            diag_event('info', 'media', 'rename', 'success', ['asset_id' => $id]);
             flash('素材名称已修改。');
         } else {
             throw new RuntimeException('操作不受支持');
         }
     } catch (Throwable $e) {
+        diag_exception('media', $action === 'delete' ? 'delete' : 'rename', $e);
         flash($e->getMessage(), 'error');
     }
     redirect_to('/admin/media');
@@ -387,6 +464,7 @@ if ($path === '/admin/guides' && $method === 'GET') {
 if ($path === '/admin/guides/delete' && $method === 'POST') {
     check_csrf();
     $pdo->prepare('DELETE FROM guides WHERE id=?')->execute([(int)($_POST['id'] ?? 0)]);
+    diag_event('info', 'guides', 'delete', 'success', ['guide_id' => (int)($_POST['id'] ?? 0)]);
     flash('教程已删除。');
     redirect_to('/admin/guides');
 }
@@ -405,6 +483,7 @@ if ($path === '/admin/guides/save' && $method === 'POST') {
     $status = ($_POST['status'] ?? 'draft') === 'published' ? 'published' : 'draft';
     $featured = empty($_POST['featured']) ? 0 : 1;
     if ($title === '' || trim(strip_tags($body)) === '') {
+        diag_event('warning', 'guides', 'save_validation', 'blocked', ['guide_id' => $id]);
         flash('请输入标题和正文内容。', 'error');
         redirect_to($id ? '/admin/guides/edit?id=' . $id : '/admin/guides/new');
     }
@@ -417,10 +496,11 @@ if ($path === '/admin/guides/save' && $method === 'POST') {
             $pdo->prepare($sql)->execute([$title, $slug, $summary, $body, $cover, $category, $tags, $status, $featured, $status]);
             $id = (int)$pdo->lastInsertId();
         }
+        diag_event('info', 'guides', 'save', 'success', ['guide_id' => $id]);
         flash('教程已保存。');
         redirect_to('/admin/guides/edit?id=' . $id);
     } catch (PDOException $e) {
-        error_log('[HowHub guide save] ' . $e->getMessage());
+        diag_exception('guides', 'save', $e);
         flash('保存失败：网址别名可能与已有教程重复，请换一个。', 'error');
         redirect_to($id ? '/admin/guides/edit?id=' . $id : '/admin/guides/new');
     }
@@ -458,6 +538,7 @@ if ($path === '/admin/categories' && $method === 'POST') {
     try {
         if ($action === 'delete') {
             $pdo->prepare('DELETE FROM categories WHERE id=?')->execute([$id]);
+            diag_event('info', 'categories', 'delete', 'success');
             flash('分类已删除，原分类下的文章将转为未分类。');
         } else {
             $name = mb_substr(trim((string)($_POST['name'] ?? '')), 0, 80);
@@ -469,9 +550,11 @@ if ($path === '/admin/categories' && $method === 'POST') {
             } else {
                 $pdo->prepare('INSERT INTO categories (name, slug, description, sort_order) VALUES (?, ?, ?, 100)')->execute([$name, $slug, $description]);
             }
+            diag_event('info', 'categories', 'save');
             flash('分类已保存。');
         }
     } catch (Throwable $e) {
+        diag_exception('categories', 'save', $e);
         flash('操作失败：名称或别名可能重复。', 'error');
     }
     redirect_to('/admin/categories');
@@ -500,6 +583,7 @@ if ($path === '/admin/settings') {
         check_csrf();
         set_setting('site_title', mb_substr(trim((string)($_POST['site_title'] ?? 'HowHub')), 0, 60));
         set_setting('site_description', mb_substr(trim((string)($_POST['site_description'] ?? '')), 0, 240));
+        diag_event('info', 'settings', 'save');
         flash('站点设置已保存。');
         redirect_to('/admin/settings');
     }
@@ -520,9 +604,11 @@ if ($path === '/admin/password') {
         $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id=?');
         $stmt->execute([$_SESSION['user_id']]);
         if (!password_verify($old, (string)$stmt->fetchColumn()) || strlen($new) < 12 || $new !== $confirm) {
+            diag_event('warning', 'auth', 'password_change', 'blocked');
             flash('原密码错误，或新密码不符合要求（至少 12 位，且两次一致）。', 'error');
         } else {
             $pdo->prepare('UPDATE users SET password_hash=? WHERE id=?')->execute([password_hash($new, PASSWORD_DEFAULT), $_SESSION['user_id']]);
+            diag_event('info', 'auth', 'password_change');
             flash('登录密码已更新。');
         }
         redirect_to('/admin/password');

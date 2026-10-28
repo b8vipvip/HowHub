@@ -109,6 +109,7 @@ function ai_http(string $path, ?array $payload = null, int $timeout = 120): arra
     $config = ai_config();
     if (!$config['configured']) throw new RuntimeException('请先在「AI 供应商」配置 chat2api');
     $key = ai_decrypt(setting('ai_api_key_cipher'));
+    $requestStarted = microtime(true);
     $handle = curl_init($config['base_url'] . $path);
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
@@ -132,13 +133,15 @@ function ai_http(string $path, ?array $payload = null, int $timeout = 120): arra
     $error = curl_error($handle);
     curl_close($handle);
     if ($result === false) {
-        error_log('[HowHub AI] transport error: ' . $error);
+        diag_event('error', 'ai', 'upstream_transport', 'failure', ['duration_ms' => (int)((microtime(true) - $requestStarted) * 1000), 'upstream_status' => $status]);
+        // Transport details may contain upstream URLs or credentials: do not print them to PHP logs.
         throw new RuntimeException('连接 AI 服务失败或超时，请检查网络及 PHP/Nginx 超时设置');
     }
     if ($status < 200 || $status >= 300) {
-        error_log('[HowHub AI] upstream HTTP ' . $status);
+        diag_event('error', 'ai', 'upstream_http', 'failure', ['upstream_status' => $status, 'duration_ms' => (int)((microtime(true) - $requestStarted) * 1000)]);
         throw new RuntimeException('AI 服务返回 HTTP ' . $status . '，请检查供应商与模型配置');
     }
+    diag_event('info', 'ai', 'upstream_http', 'success', ['upstream_status' => $status, 'duration_ms' => (int)((microtime(true) - $requestStarted) * 1000)]);
     if (strlen($result) > 2000000) throw new RuntimeException('AI 响应过大');
     $data = json_decode($result, true);
     if (!is_array($data)) throw new RuntimeException('AI 服务返回的 JSON 无效');
