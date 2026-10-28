@@ -91,4 +91,30 @@ fi
 rolled="$(find "$TMP/backups" -mindepth 1 -maxdepth 1 -type d -name '20*' | grep -v -F -x "$first" | head -1)"
 [[ -n $rolled && $(cat "$rolled/RESULT") == rolled-back ]]
 [[ -d "$rolled/failed-live-storage" && -d "$rolled/failed-live-uploads" ]]
-echo 'HowHub updater integration passed: backup, successful update, failed update, DB/assets/key rollback'
+# A subsequent successful release must prune only older successful backups
+# while preserving the rollback forensic backup.
+(
+  cd "$TMP/seed"
+  cat > app/bootstrap.php <<'PHP'
+<?php
+function database(): PDO {
+    return new PDO('sqlite:' . dirname(__DIR__) . '/storage/howhub.sqlite');
+}
+PHP
+  printf '0.8.3\n' > VERSION
+  git add app/bootstrap.php VERSION
+  git commit -qm recovered
+  git push -q origin main
+)
+HOWHUB_BACKUP_KEEP=1 bash "$TMP/site/bin/update.sh"
+[[ $(cat "$TMP/site/VERSION") == 0.8.3 ]]
+success_count=0
+rollback_count=0
+for entry in "$TMP"/backups/20*; do
+  [[ -d $entry ]] || continue
+  state="$(cat "$entry/RESULT" 2>/dev/null || true)"
+  [[ $state != success ]] || success_count=$((success_count + 1))
+  [[ $state != rolled-back ]] || rollback_count=$((rollback_count + 1))
+done
+[[ $success_count -eq 1 && $rollback_count -eq 1 ]]
+echo 'HowHub updater integration passed: consistent backup, rollback, preservation, retention'

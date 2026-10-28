@@ -18,7 +18,7 @@
 cd /www/wwwroot/howhub.k2n.cn/HowHub
 git status --short
 # 若有跟踪文件修改，先处理再继续
-git fetch --no-tags origin main
+git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
 git show origin/main:bin/update.sh > /tmp/howhub-update-once.sh
 sudo env HOWHUB_ROOT="$PWD" bash /tmp/howhub-update-once.sh
 rm -f /tmp/howhub-update-once.sh

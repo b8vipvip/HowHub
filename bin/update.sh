@@ -154,7 +154,7 @@ chmod 775 "$ROOT/public/uploads"
 printf 'success\n' > "$BACKUP/RESULT"
 log "更新成功：$(cat VERSION) ($(git rev-parse --short=12 HEAD))"
 log "备份目录：$BACKUP"
-mapfile -t good < <(find "$BASE" -mindepth 1 -maxdepth 1 -type d -name '20????????T??????Z-*' -print | sort -r | while IFS= read -r dir; do
+mapfile -t good < <(find "$BASE" -mindepth 1 -maxdepth 1 -type d -name '20??????T??????Z-*' -print | sort -r | while IFS= read -r dir; do
   [[ $(cat "$dir/RESULT" 2>/dev/null || true) == success ]] && printf '%s\n' "$dir"
 done)
 if (( ${#good[@]} > KEEP )); then
