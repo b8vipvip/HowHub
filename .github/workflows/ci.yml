@@ -22,3 +22,5 @@ jobs:
         run: php tests/smoke.php
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
+      - name: Verified update and rollback integration test
+        run: sudo env HOWHUB_PHP="$(command -v php)" HOWHUB_WEB_USER=www-data bash tests/update.sh

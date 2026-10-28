@@ -9,6 +9,12 @@ for attempt in $(seq 1 30); do
   sleep .25
 done
 curl -fsS http://127.0.0.1:8099/healthz | grep -q '"ok":true'
+# A site under maintenance must not accept new PHP requests.
+touch storage/.maintenance
+maintenance_status=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/healthz)
+rm -f storage/.maintenance
+test "$maintenance_status" = 503
+
 curl -fsS http://127.0.0.1:8099/ | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'
 curl -fsS http://127.0.0.1:8099/guide/tcl-leiniao-kugou-account | grep -q '不要点微信图标绑定'
 curl -fsS 'http://127.0.0.1:8099/?q=%E9%85%B7%E7%8B%97' | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'

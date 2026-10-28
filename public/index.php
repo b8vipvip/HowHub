@@ -3,6 +3,15 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/app/bootstrap.php';
 
+/* Block new PHP requests during a verified backup and deployment.
+   The site is reopened only after successful update or successful rollback. */
+if (is_file(HOWHUB_ROOT . '/storage/.maintenance')) {
+    http_response_code(503);
+    header('Cache-Control: no-store');
+    header('Retry-After: 120');
+    exit('HowHub 正在备份和更新，请稍后刷新页面。');
+}
+
 try {
     $pdo = database();
 } catch (Throwable $e) {

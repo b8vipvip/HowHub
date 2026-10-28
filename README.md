@@ -4,6 +4,37 @@
 
 技术栈：**PHP 8.2+ / SQLite / 原生 CSS 和 JavaScript**。不依赖 Node、npm、Docker、Composer 或第三方数据库。适合 Ubuntu + 宝塔面板的普通 PHP 网站。
 
+## 安全更新、自动备份与失败恢复（v0.8.1）
+
+**今后不要再直接运行 `git pull` 更新线上 HowHub。** 统一通过 `sudo bash bin/update.sh` 完成：串行更新锁 → 检查远端 main 是否可快进 → 临时维护状态 → 用 SQLite `VACUUM INTO` 生成包含已提交 WAL 内容的一致性数据库快照 → 备份整个 `storage/`（AI 密钥、附件、诊断日志、其他私有数据）和 `public/uploads/`（图片）→ SHA256 校验 → 代码快进 → PHP 语法、启动、SQLite 完整性检查。成功后继续保留最新备份，不恢复旧内容；**失败自动回滚到旧 Git 提交并恢复数据库、附件、图片和密钥**。失败期间产生的数据另存在备份文件夹 `failed-live-storage/` 和 `failed-live-uploads/`，避免静默销毁。
+
+默认备份目录 `/root/howhub-backups/`（仅 root 可读写）；自动保留最近 **7 次成功更新**的备份，失败/回滚备份不会自动删除。需要保留更多可在调用前设置 `HOWHUB_BACKUP_KEEP=15`。如果磁盘可用空间不足，更新会在备份前停止。无新版本则不重复备份。无需额外数据库、Node 或 Docker。
+
+### 首次启用自动更新器（当前服务器还没有脚本）
+
+旧版本尚不包含更新脚本，为了让**第一次升级也先备份**，在服务器终端执行：
+
+```bash
+cd /www/wwwroot/howhub.k2n.cn/HowHub
+git status --short
+# 若有跟踪文件修改，先处理再继续
+git fetch --no-tags origin main
+git show origin/main:bin/update.sh > /tmp/howhub-update-once.sh
+sudo env HOWHUB_ROOT="$PWD" bash /tmp/howhub-update-once.sh
+rm -f /tmp/howhub-update-once.sh
+```
+
+这个引导流程先从已连接的 GitHub SSH 仓库取出最新更新器本身，**不会提前用 git pull 修改线上代码**。使用前确认远程仓库是 `b8vipvip/HowHub`。从此以后执行：
+
+```bash
+cd /www/wwwroot/howhub.k2n.cn/HowHub
+sudo bash bin/update.sh
+```
+
+注意：首次从尚未支持维护标记的旧版本升级时，应避开正在上传素材、保存文章或进行 AI 长任务的时段；新版本会在 `storage/.maintenance` 存在时返回 HTTP 503，避免后续升级时产生新的写入。已在运行的旧请求无法由维护标记直接中断，因此仍应尽量选择空闲时段。
+
+安全说明：自动恢复仅在脚本内的升级验证失败时触发；它不可能自动判断所有上线后才被发现的业务逻辑问题。对于被强制中止（例如断电、SIGKILL）且留有维护标记的情况，脚本会拒绝重复更新，须先检查备份和现场并由管理员处理。常规成功升级不能再恢复旧数据，否则会覆盖升级后新增的教程。
+
 ## 简洁首页文章目录（v0.8.0）
 
 去掉首页装饰插画、宣传区域、文章封面图片卡片和分页。首页直接列出全部已发布文章，按置顶与发布时间排序；保留搜索与分类筛选。文章详情与管理后台不改变。
@@ -127,10 +158,9 @@ sudo -u www /www/server/php/83/bin/php bin/import-yuque-images.php
 curl -fsS https://howhub.k2n.cn/healthz
 # 预期：{"ok":true,"app":"HowHub"}
 
-# 后续更新（操作前先备份 storage 和 uploads，数据库会无损创建 media_assets 表）
+# 后续更新统一通过自动备份与失败回滚工具
 cd /www/wwwroot/howhub.k2n.cn/HowHub
-git pull --ff-only origin main
-sudo chown -R www:www storage public/uploads
+sudo bash bin/update.sh
 ```
 
 **重要：** `storage/howhub.sqlite` 及 `public/uploads/` 在 `.gitignore` 中，不会被 Git 更新覆盖。上线后要在宝塔「计划任务」中每天备份这两个目录（包含 storage/media_files 附件），SQLite 数据备份建议用 `sqlite3 ... '.backup ...'` 或停写/快照方式，切勿在写入期间仅复制单一 `.sqlite` 而忽略 WAL 文件。避免给 `storage` 开启公开下载。
