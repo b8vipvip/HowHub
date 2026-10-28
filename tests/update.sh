@@ -56,6 +56,20 @@ bash "$TMP/site/bin/update.sh"
 [[ $(cat "$TMP/site/public/uploads/image.png") == original-image ]]
 [[ $(cat "$TMP/site/storage/ai-secret.key") == private-ai-key ]]
 [[ ! -e "$TMP/site/storage/.maintenance" ]]
+# Git may create tracked code as mode 0600 when updater uses umask 077.
+# Public PHP/assets must be readable after upgrade, while secrets stay private.
+[[ $(stat -c %a "$TMP/site/public/index.php") == 644 ]]
+[[ $(stat -c %a "$TMP/site/app/bootstrap.php") == 644 ]]
+[[ $(stat -c %a "$TMP/site/public") == 755 ]]
+[[ $(stat -c %a "$TMP/site/bin/update.sh") == 644 ]]
+[[ $(stat -c %a "$TMP/site/storage/ai-secret.key") != 644 ]]
+# Even when no new version exists, a broken tracked file must self-heal.
+chmod 600 "$TMP/site/public/index.php" "$TMP/site/app/bootstrap.php"
+chmod 700 "$TMP/site/public"
+bash "$TMP/site/bin/update.sh"
+[[ $(stat -c %a "$TMP/site/public/index.php") == 644 ]]
+[[ $(stat -c %a "$TMP/site/app/bootstrap.php") == 644 ]]
+[[ $(stat -c %a "$TMP/site/public") == 755 ]]
 first="$(find "$TMP/backups" -mindepth 1 -maxdepth 1 -type d -name '20*' | head -1)"
 [[ -n $first && -f $first/COMPLETE && $(cat "$first/RESULT") == success ]]
 [[ "$("$PHP" -r '$p=new PDO("sqlite:".$argv[1]);echo $p->query("SELECT value FROM content")->fetchColumn();' "$first/howhub.sqlite")" == original ]]
@@ -83,6 +97,9 @@ if bash "$TMP/site/bin/update.sh"; then
   exit 1
 fi
 [[ $(cat "$TMP/site/VERSION") == 0.8.1 ]]
+[[ $(stat -c %a "$TMP/site/public/index.php") == 644 ]]
+[[ $(stat -c %a "$TMP/site/app/bootstrap.php") == 644 ]]
+[[ $(stat -c %a "$TMP/site/public") == 755 ]]
 [[ $(cat "$TMP/site/public/uploads/image.png") == original-image ]]
 [[ $(cat "$TMP/site/storage/media_files/guide.pdf") == original-document ]]
 [[ $(cat "$TMP/site/storage/ai-secret.key") == private-ai-key ]]
