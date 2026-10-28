@@ -129,7 +129,10 @@
     try {
       const clean = await cleanHtml(currentHtml());
       // No same-origin access, scripts, forms, or active content in preview.
-      previewFrame.srcdoc = '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/style.css"><style>body{background:#fff;padding:25px;margin:0}.article-content{max-width:850px;margin:auto}@media(max-width:600px){body{padding:15px}}</style></head><body><main class="reader-article"><article class="article-content">' + clean + '</article></main></body></html>';
+      const escapeText = value => String(value || '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+      const currentTitle = escapeText(form.querySelector('input[name="title"]')?.value || '未命名教程');
+      const currentSummary = escapeText(form.querySelector('textarea[name="summary"]')?.value || '');
+      previewFrame.srcdoc = '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/style.css"><style>body{background:#fff;padding:25px;margin:0}.article-content{max-width:850px;margin:auto}@media(max-width:600px){body{padding:15px}}</style></head><body><main class="reader-article"><header class="article-heading"><h1>' + currentTitle + '</h1><p>' + currentSummary + '</p></header><article class="article-content">' + clean + '</article></main></body></html>';
       previewDialog.showModal();
       messageText('预览的是编辑器当前内容，没有保存或发布。');
     } catch (err) {
