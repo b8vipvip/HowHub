@@ -172,6 +172,31 @@ function ai_stream_frame(string $frame, callable $onDelta, string &$text, bool &
     $onDelta($part);
 }
 
+/**
+ * Use the callback option actually exposed by the installed PHP/cURL build.
+ * CURLOPT_XFERINFOFUNCTION is not guaranteed to exist on PHP 8.2–8.4.
+ * With no progress callback, network streaming still works and the browser timer continues.
+ */
+function ai_stream_progress_options(callable $onStage, string &$text, float &$lastHeartbeat): array
+{
+    $name = defined('CURLOPT_XFERINFOFUNCTION') ? 'CURLOPT_XFERINFOFUNCTION'
+        : (defined('CURLOPT_PROGRESSFUNCTION') ? 'CURLOPT_PROGRESSFUNCTION' : '');
+    if ($name === '' || !defined('CURLOPT_NOPROGRESS')) return [];
+
+    // The legacy progress callback and newer transfer callback both pass
+    // four progress values after the cURL handle.
+    $progress = static function (...$unused) use ($onStage, &$text, &$lastHeartbeat): int {
+        if (connection_aborted()) return 1;
+        $now = microtime(true);
+        if ($now - $lastHeartbeat >= 5) {
+            $lastHeartbeat = $now;
+            $onStage($text === '' ? 'AI 正在处理请求，等待首个输出…' : 'AI 正在继续生成内容…');
+        }
+        return 0;
+    };
+    return [constant('CURLOPT_NOPROGRESS') => false, constant($name) => $progress];
+}
+
 /** Request chat2api's real stream; no background jobs and no silent second generation. */
 function ai_chat_stream(array $payload, callable $onDelta, callable $onStage): string
 {
@@ -189,7 +214,7 @@ function ai_chat_stream(array $payload, callable $onDelta, callable $onStage): s
     $upstreamFailure = null;
     $handle = curl_init($config['base_url'] . '/chat/completions');
     $onStage('正在连接 AI 供应商…');
-    curl_setopt_array($handle, [
+    $options = [
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR),
         CURLOPT_RETURNTRANSFER => false,
@@ -202,20 +227,8 @@ function ai_chat_stream(array $payload, callable $onDelta, callable $onStage): s
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         CURLOPT_BUFFERSIZE => 1024,
-        CURLOPT_NOPROGRESS => false,
-        CURLOPT_HEADERFUNCTION => static function ($curl, string $header) use (&$code): int {
-            if (preg_match('~^HTTP/\S+\s+(\d+)~i', $header, $m)) $code = (int)$m[1];
-            return strlen($header);
-        },
-        CURLOPT_XFERINFOFUNCTION => static function ($curl, $downloadTotal, $downloadNow, $uploadTotal, $uploadNow) use (&$lastHeartbeat, &$text, $onStage): int {
-            if (connection_aborted()) return 1;
-            $now = microtime(true);
-            if ($now - $lastHeartbeat >= 5) {
-                $lastHeartbeat = $now;
-                $onStage($text === '' ? 'AI 正在处理请求，等待首个输出…' : 'AI 正在继续生成内容…');
-            }
-            return 0;
-        },
+        // Progress callbacks are optional; some PHP/cURL builds do not expose
+        // CURLOPT_XFERINFOFUNCTION even when cURL streaming itself is supported.
         CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$buffer, &$text, &$done, &$upstreamFailure, &$code, $onDelta, $onStage): int {
             if (connection_aborted()) return 0;
             if ($code >= 400) { // Never send the provider's potentially sensitive error response to clients.
@@ -238,7 +251,14 @@ function ai_chat_stream(array $payload, callable $onDelta, callable $onStage): s
             }
             return strlen($chunk);
         },
-    ]);
+    ];
+    // Keep the observable stage heartbeat without making it a hard requirement.
+    $options += ai_stream_progress_options($onStage, $text, $lastHeartbeat);
+    if (!curl_setopt_array($handle, $options)) {
+        curl_close($handle);
+        diag_event('error', 'ai', 'stream_setup', 'failure');
+        throw new RuntimeException('无法初始化 AI 流式请求，请检查 PHP curl 扩展');
+    }
     $ok = curl_exec($handle);
     $http = (int)curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
     curl_close($handle);
