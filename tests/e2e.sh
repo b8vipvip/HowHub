@@ -29,6 +29,9 @@ foreach (["<header class=\"topbar\"", "<nav class=\"nav-links\"", "本页目录"
     if (str_contains($html, $forbidden)) exit(2);
 }
 if (substr_count($html, "<img ") !== 5) exit(3);
+if (!preg_match("~<div class=\"article-heading\"><h1>[^<]+</h1></div>~", $html)) exit(4);
+if (str_contains($html, "class=\"article-meta\"")) exit(5);
+if (str_contains($html, "<div class=\"article-heading\"><h1>TCL雷鸟电视查看和绑定酷狗账号</h1><p>")) exit(6);
 ';
 curl -fsS http://127.0.0.1:8099/ | grep -q '<header class="topbar">'
 echo 'Article reading mode e2e passed: no navbar/category/TOC, content and images preserved'

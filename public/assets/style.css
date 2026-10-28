@@ -147,3 +147,10 @@ a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}b
 .reader-clean .article-content h2,.reader-clean .article-content h3{scroll-margin-top:24px}
 .reader-clean .article-bottom{text-align:left;padding-top:20px;margin-top:55px}
 @media(max-width:700px){.reader-clean{width:calc(100% - 32px);padding-top:26px;padding-bottom:50px}.reader-clean .article-heading{padding-bottom:24px}.reader-clean .article-heading h1{font-size:clamp(24px,6vw,34px)}.reader-clean .article-content{font-size:15px}}
+
+/* v0.8.5: show only article title above the body (no summary or stats). */
+.reader-clean .article-heading{border-bottom:0;padding-bottom:4px}
+.reader-clean .article-heading h1{margin:0 0 12px}
+.reader-clean .reader-article>.article-content{padding-top:0}
+.reader-clean .article-content>h2:first-child,.reader-clean .article-content>h3:first-child{margin-top:20px}
+@media(max-width:700px){.reader-clean .article-heading{padding-bottom:2px}}

@@ -111,8 +111,10 @@ if (preg_match('~^/guide/([^/]+)$~u', $path, $match) && $method === 'GET') {
     // breadcrumb trail or table-of-contents sidebar.
     page_start($guide['title'], $guide['summary'], false, false);
     echo '<main class="reader-shell reader-clean shell"><div class="reader-layout"><article class="reader-article">';
-    echo '<div class="article-heading"><h1>' . h($guide['title']) . '</h1><p>' . h($guide['summary']) . '</p>';
-    echo '<div class="article-meta"><span>更新于 ' . h(substr((string)$guide['updated_at'], 0, 10)) . '</span><i></i><span>' . ((int)$guide['views'] + 1) . ' 次阅读</span></div></div>';
+    // Keep article details focused: show only the title above the full body.
+    // Summary remains available for SEO and homepage excerpts, but is not
+    // repeated as an intro paragraph; reading stats are not shown.
+    echo '<div class="article-heading"><h1>' . h($guide['title']) . '</h1></div>';
     echo '<div class="article-content">' . $body . '</div>';
     echo '<div class="article-bottom"><a href="/">← 返回全部文章</a></div>';
     echo '</article></div></main>';
