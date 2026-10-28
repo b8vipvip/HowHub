@@ -35,6 +35,9 @@ echo 'HowHub e2e passed: homepage / guide / search / admin / editor / media / CS
 # AI settings and cross-site paste are admin-only and CSRF-protected.
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'AI 供应商'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'ai-source-html'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-toggle-source'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-preview-dialog'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-ai-optimize'
 html=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
   --data-urlencode 'html=<h2 onclick="bad()">标题</h2><script>bad()</script><img src="https://example.com/image.png">' \
   http://127.0.0.1:8099/admin/import/clean)
@@ -69,3 +72,14 @@ response=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
 php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 || !preg_match("~/admin/guides/edit\\?id=\\d+~",$j["edit_url"])) exit(1);' "$response"
 php -r 'require "app/bootstrap.php"; $g=database()->query("SELECT * FROM guides WHERE title = '\''模拟生成的教程'\'' ORDER BY id DESC LIMIT 1")->fetch(); if(!$g || $g["status"]!=="draft" || substr_count($g["body_html"],"<img ")!==2 || !str_contains($g["body_html"],"example.org/a.png")) exit(1);'
 echo 'HowHub mock chat2api e2e passed: encrypted config / model discovery / AI draft / image placeholders'
+
+# The optimization request is an editor-only preview, not a database write.
+blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
+  --data-urlencode 'html=<p>do not save</p>' http://127.0.0.1:8099/admin/guides/optimize)
+test "$blocked" = "419"
+optimized=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'title=电视教程' \
+  --data-urlencode 'html=<h2>第一步</h2><p>操作不要发送验证码</p><figure><img src="/uploads/one.png"></figure>' \
+  http://127.0.0.1:8099/admin/guides/optimize)
+php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"] !== 1 || !str_contains($j["html"], "guide-img-medium") || !str_contains($j["html"], "/uploads/one.png") || str_contains($j["html"], "<script")) exit(1);' "$optimized"
+echo 'HowHub AI optimize e2e passed: mock provider / image retention / HTML whitelist / CSRF'

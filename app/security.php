@@ -71,6 +71,47 @@ function safe_link(string $url): string
     return preg_match('~^https?://[^\s<>"\x00-\x1F]+$~iu', $url) ? $url : '';
 }
 
+// Only deliberately supported display properties survive HTML editing or model output.
+// Never trust arbitrary style/class strings from pasted HTML or AI completions.
+function safe_editor_style(string $style, string $tag): string
+{
+    if (strlen($style) > 1500) return '';
+    $styles = [];
+    $tags = ['p','h2','h3','h4','strong','b','em','i','span','div','blockquote','li','figcaption','td','th','figure','img'];
+    if (!in_array($tag, $tags, true)) return '';
+    foreach (explode(';', $style) as $piece) {
+        if (!str_contains($piece, ':')) continue;
+        [$property, $value] = array_map('trim', explode(':', $piece, 2));
+        $property = strtolower($property);
+        $value = strtolower($value);
+        if (str_contains($value, '!') || str_contains($value, '(') && !preg_match('/^rgb\(\d{1,3},\s*\d{1,3},\s*\d{1,3}\)$/', $value)) continue;
+        if (in_array($property, ['color', 'background-color', 'border-left-color'], true)) {
+            if (preg_match('/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/', $value) || preg_match('/^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$/', $value, $m) && max((int)$m[1], (int)$m[2], (int)$m[3]) <= 255) {
+                $styles[$property] = $value;
+            }
+        } elseif ($property === 'font-size' && preg_match('/^(1[2-9]|2\d|3[0-6])px$/', $value)) {
+            $styles[$property] = $value;
+        } elseif ($property === 'font-weight' && in_array($value, ['400','500','600','700','800','bold'], true)) {
+            $styles[$property] = $value;
+        } elseif ($property === 'line-height' && preg_match('/^(1(?:\.[0-9])?|2(?:\.[0-2])?)$/', $value) && (float)$value >= 1) {
+            $styles[$property] = $value;
+        } elseif ($property === 'text-align' && in_array($value, ['left','right','center','justify'], true)) {
+            $styles[$property] = $value;
+        } elseif ($property === 'width' && $tag === 'img' && preg_match('/^(?:[3-9]\d|100)%$/', $value)) {
+            $styles[$property] = $value;
+        }
+    }
+    return implode(';', array_map(static fn($key, $value) => "$key:$value", array_keys($styles), $styles));
+}
+
+function safe_editor_class(string $class, string $tag): string
+{
+    $allowed = $tag === 'img' ? ['guide-img-small', 'guide-img-medium'] :
+        ['hh-note', 'hh-tip', 'hh-warning', 'hh-step', 'hh-lead', 'hh-accent', 'hh-highlight', 'hh-muted', 'hh-center'];
+    $classes = preg_split('/\s+/', trim($class)) ?: [];
+    return implode(' ', array_slice(array_values(array_unique(array_intersect($classes, $allowed))), 0, 3));
+}
+
 function sanitize_content(string $html): string
 {
     if (!class_exists(DOMDocument::class)) {
@@ -111,8 +152,8 @@ function sanitize_content(string $html): string
             }
             $href = $tag === 'a' ? safe_link($child->getAttribute('href')) : '';
             $src = $tag === 'img' ? safe_image($child->getAttribute('src')) : '';
-            $imageClass = $tag === 'img' ? $child->getAttribute('class') : '';
-            $imageClass = in_array($imageClass, ['guide-img-small', 'guide-img-medium'], true) ? $imageClass : '';
+            $safeClass = safe_editor_class($child->getAttribute('class'), $tag);
+            $safeStyle = safe_editor_style($child->getAttribute('style'), $tag);
             $alt = $tag === 'img' ? mb_substr($child->getAttribute('alt'), 0, 200) : '';
             while ($child->attributes->length > 0) {
                 $child->removeAttributeNode($child->attributes->item(0));
@@ -130,8 +171,9 @@ function sanitize_content(string $html): string
                 $child->setAttribute('src', $src);
                 $child->setAttribute('alt', $alt);
                 $child->setAttribute('loading', 'lazy');
-                if ($imageClass !== '') $child->setAttribute('class', $imageClass);
             }
+            if ($safeClass !== '') $child->setAttribute('class', $safeClass);
+            if ($safeStyle !== '') $child->setAttribute('style', $safeStyle);
         }
     };
     $walk($root);

@@ -56,6 +56,16 @@
   const token = form.querySelector('[name="csrf_token"]').value;
   const cover = document.getElementById('cover-image');
   const preview = document.getElementById('cover-preview');
+  const sourceEditor = document.getElementById('source-editor');
+  const sourceHelp = document.getElementById('source-editor-help');
+  const sourceToggle = document.getElementById('editor-toggle-source');
+  const previewButton = document.getElementById('editor-preview-button');
+  const previewDialog = document.getElementById('editor-preview-dialog');
+  const previewFrame = document.getElementById('editor-preview-frame');
+  const optimizeButton = document.getElementById('editor-ai-optimize');
+  const undoOptimizeButton = document.getElementById('editor-ai-undo');
+  let sourceMode = false;
+  let previousAIHtml = null;
   const dialog = document.getElementById('media-dialog');
   const dialogList = document.getElementById('media-dialog-list');
   let imageTarget = 'body';
@@ -67,6 +77,100 @@
     message.textContent = text;
     message.classList.toggle('is-error', isError);
   }
+  function currentHtml() {
+    if (sourceMode) return sourceEditor.value;
+    // Strip editing-only selection outline without changing the live editor DOM.
+    const clone = editor.cloneNode(true);
+    clone.querySelectorAll('.editor-image-selected').forEach(img => img.classList.remove('editor-image-selected'));
+    return clone.innerHTML;
+  }
+  async function cleanHtml(html) {
+    const data = new FormData();
+    data.append('csrf_token', token);
+    data.append('html', html);
+    const response = await fetch('/admin/import/clean', { method: 'POST', body: data, credentials: 'same-origin', cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || 'HTML 过滤失败');
+    return result.html;
+  }
+  function setSourceMode(active) {
+    sourceMode = active;
+    editor.hidden = active;
+    sourceEditor.hidden = !active;
+    sourceHelp.hidden = !active;
+    sourceToggle.setAttribute('aria-pressed', String(active));
+    sourceToggle.textContent = active ? '返回可视化编辑' : '</> HTML 源代码';
+    document.querySelectorAll('[data-command], [data-action]').forEach(button => { button.disabled = active; });
+  }
+  sourceToggle.addEventListener('click', async () => {
+    if (!sourceMode) {
+      sourceEditor.value = currentHtml();
+      setSourceMode(true);
+      sourceEditor.focus();
+      messageText('已进入 HTML 源码模式。可直接编辑代码，保存时由服务端过滤危险标签。');
+      return;
+    }
+    sourceToggle.disabled = true;
+    try {
+      const clean = await cleanHtml(sourceEditor.value);
+      editor.innerHTML = clean;
+      selectImage(null);
+      setSourceMode(false);
+      messageText('已切换回可视化编辑，危险脚本和不支持的 CSS 已被清理。');
+    } catch (err) {
+      messageText('HTML 校验失败：' + (err.message || '未知错误') + '；源码仍保留。', true);
+    } finally {
+      sourceToggle.disabled = false;
+    }
+  });
+  previewButton.addEventListener('click', async () => {
+    previewButton.disabled = true;
+    messageText('正在生成当前未保存正文的安全预览…');
+    try {
+      const clean = await cleanHtml(currentHtml());
+      // No same-origin access, scripts, forms, or active content in preview.
+      previewFrame.srcdoc = '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/style.css"><style>body{background:#fff;padding:25px;margin:0}.article-content{max-width:850px;margin:auto}@media(max-width:600px){body{padding:15px}}</style></head><body><main class="reader-article"><article class="article-content">' + clean + '</article></main></body></html>';
+      previewDialog.showModal();
+      messageText('预览的是编辑器当前内容，没有保存或发布。');
+    } catch (err) {
+      messageText('预览失败：' + (err.message || '未知错误'), true);
+    } finally { previewButton.disabled = false; }
+  });
+  document.getElementById('editor-preview-close').addEventListener('click', () => previewDialog.close());
+  previewDialog.addEventListener('close', () => { previewFrame.removeAttribute('srcdoc'); });
+  optimizeButton.addEventListener('click', async () => {
+    const original = currentHtml();
+    if (!original.trim()) { messageText('请输入正文后再进行 AI 优化。', true); return; }
+    if (!window.confirm('将当前未保存的正文发送给已配置的 AI 供应商进行润色与排版。返回的 HTML 会填入源码模式，但不会自动保存或发布。确定继续？')) return;
+    const formData = new FormData();
+    formData.append('csrf_token', token);
+    formData.append('html', original);
+    formData.append('title', form.querySelector('input[name="title"]')?.value || '');
+    optimizeButton.disabled = true;
+    messageText('AI 正在优化文案、配色、版式和图片尺寸。当前文章不会被自动保存…');
+    try {
+      const response = await fetch('/admin/guides/optimize', { method: 'POST', body: formData, credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'AI 优化失败');
+      if (currentHtml() !== original) throw new Error('AI 运行期间正文已经变化，为避免覆盖新内容，未应用优化；请重新操作');
+      previousAIHtml = original;
+      sourceEditor.value = data.html;
+      setSourceMode(true);
+      undoOptimizeButton.hidden = false;
+      sourceEditor.focus();
+      messageText(`AI 优化 HTML 已填入源码编辑器，已保留 ${data.image_count} 张原图。请预览后再保存；可以撤销本次优化。`);
+    } catch (err) {
+      messageText('AI 优化未应用：' + (err.message || '网络错误') + '；原有正文保留。', true);
+    } finally { optimizeButton.disabled = false; }
+  });
+  undoOptimizeButton.addEventListener('click', () => {
+    if (previousAIHtml === null) return;
+    sourceEditor.value = previousAIHtml;
+    setSourceMode(true);
+    previousAIHtml = null;
+    undoOptimizeButton.hidden = true;
+    messageText('已恢复本次 AI 优化前的 HTML，请记得保存或继续编辑。');
+  });
   function rememberSelection() {
     const selection = window.getSelection();
     if (selection.rangeCount && editor.contains(selection.anchorNode)) lastSelection = selection.getRangeAt(0).cloneRange();
@@ -388,12 +492,13 @@
   form.addEventListener('submit', event => {
     // Editor-only selection decorations must never be persisted to the published article.
     if (selectedImage) selectedImage.classList.remove('editor-image-selected');
-    hidden.value = editor.innerHTML;
-    const text = editor.innerText.trim();
+    hidden.value = currentHtml();
+    // In source mode the rich-text editor is hidden; do not accidentally submit stale HTML.
+    const text = new DOMParser().parseFromString(hidden.value, 'text/html').body.textContent.trim();
     if (!text) {
       event.preventDefault();
       messageText('请先填写教程正文。', true);
-      editor.focus();
+      if (sourceMode) sourceEditor.focus(); else editor.focus();
     }
   });
 })();

@@ -101,3 +101,35 @@ if (str_contains($dangerousDraft['body'], 'attacker.example') || str_contains($d
     throw new RuntimeException('AI 模型输出绕过安全清理');
 }
 echo "HowHub AI import smoke passed: base URL / key encryption / five Yuque images / sanitization\n";
+
+// Source HTML is editable, but the sanitizer only retains supported style/color tokens.
+$styled = sanitize_content('<h2 class="hh-step evil" style="color:#6144dd;background-color:#f2f1ff;font-size:23px;position:fixed;background-image:url(https://evil.invalid/a)">步骤</h2><img src="/uploads/photo.png" style="width:70%;position:absolute" onerror="x">');
+foreach (['class="hh-step"','color:#6144dd','background-color:#f2f1ff','font-size:23px','width:70%'] as $allowed) {
+    if (!str_contains($styled, $allowed)) throw new RuntimeException('富文本样式白名单丢失: ' . $allowed);
+}
+foreach (['evil','position:', 'background-image:', 'onerror=', 'evil.invalid'] as $blocked) {
+    if (str_contains($styled, $blocked)) throw new RuntimeException('危险 CSS/属性通过: ' . $blocked);
+}
+$existing = '<div class="hh-step"><h2>第一步</h2><p>不要发送短信验证码</p><figure><img src="/uploads/one.png" alt="一"></figure><p>第二步</p><figure><img src="/uploads/two.png" class="guide-img-small"></figure></div>';
+$prepared = ai_prepare_optimization($existing);
+if (count($prepared['images']) !== 2 || !str_contains($prepared['html'], '[[HH_IMAGE_01]]') || str_contains($prepared['html'], '<img')) throw new RuntimeException('待优化原图占位失败');
+$optimized = ai_safe_optimized_html([
+    'body_html' => '<div class="hh-step"><h2 style="color:#6655dd">第一步</h2><p>不要发送短信验证码</p><figure>[[HH_IMAGE_01]]</figure><h2>第二步</h2><figure>[[HH_IMAGE_02]]</figure><script>alert(1)</script><img src="https://evil.invalid/forged.png"></div>',
+    'image_sizes' => ['medium', 'full'],
+], $prepared);
+if (substr_count($optimized, '<img ') !== 2 || !str_contains($optimized, 'class="guide-img-medium"') || str_contains($optimized, '<script') || str_contains($optimized, 'evil.invalid')) throw new RuntimeException('优化后的 HTML 未保留图片/安全属性');
+try {
+    ai_safe_optimized_html(['body_html' => '<p>[[HH_IMAGE_02]] 再 [[HH_IMAGE_01]]</p>'], $prepared);
+    throw new RuntimeException('应拒绝 AI 重新排序原图');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), '图片') && !str_contains($e->getMessage(), '原图')) throw $e;
+}
+echo "HowHub source/AI optimize smoke passed: styles / source / image order / sanitization\n";
+
+$linked = ai_prepare_optimization('<p>原文有<a href="/file/12">说明书</a></p>');
+try {
+    ai_safe_optimized_html(['body_html' => '<p>说明书链接被删</p>'], $linked);
+    throw new RuntimeException('应拒绝 AI 丢失原链接');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), '链接')) throw $e;
+}
