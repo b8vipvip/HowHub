@@ -276,6 +276,7 @@
       sourceEditor.value = data.html;
       setSourceMode(true);
       undoOptimizeButton.hidden = false;
+      undoOptimizeButton.textContent = '撤销 AI 优化';
       sourceEditor.focus();
       messageText(`AI 优化 HTML 已填入源码编辑器，已保留 ${data.image_count} 张原图。请预览后再保存；可以撤销本次优化。`);
     } catch (err) {
@@ -289,7 +290,7 @@
     setSourceMode(true);
     previousAIHtml = null;
     undoOptimizeButton.hidden = true;
-    messageText('已恢复本次 AI 优化前的 HTML，请记得保存或继续编辑。');
+    messageText('已恢复本次 AI 操作前的 HTML，请记得保存或继续编辑。');
   });
   function rememberSelection() {
     const selection = window.getSelection();
@@ -587,20 +588,28 @@
       const source = importInput.value.trim();
       if (!source) { importStatus.textContent = '请先粘贴网页代码或文章内容。'; importInput.focus(); return; }
       if (new Blob([source]).size > 300000) { importStatus.textContent = '内容不能超过 300KB。'; return; }
-      if (form.querySelector('[name="id"]')?.value !== '0' &&
-          !window.confirm('AI 将创建一篇新的草稿，不修改当前正在编辑的文章。确定继续？')) return;
+      const original = currentHtml();
+      if (original.trim() && !window.confirm('AI 将用生成的 HTML 替换当前编辑器的未保存正文（不会自动保存或发布），可以撤销。确定继续？')) return;
       const data = new FormData();
       data.append('csrf_token', token);
       data.append('html', source);
       importButton.disabled = true;
-      importStatus.textContent = 'AI 正在提取步骤、图片顺序和标题，生成后会创建草稿…';
+      importStatus.textContent = 'AI 正在提取网页正文并生成 HTML，将自动填入下方源码编辑器…';
       try {
         const result = await readAIStream('/admin/import/generate/stream', data, document.getElementById('ai-import-live'));
-        importStatus.textContent = `已创建草稿，保留 ${result.image_count} 张原图，正在打开编辑器…`;
-        window.location.assign(result.edit_url);
+        if (currentHtml() !== original) throw new Error('AI 生成期间你已修改正文，为避免覆盖修改未自动填入。请重试');
+        previousAIHtml = original;
+        sourceEditor.value = result.html;
+        setSourceMode(true);
+        undoOptimizeButton.textContent = '撤销 AI 导入';
+        undoOptimizeButton.hidden = false;
+        sourceEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        sourceEditor.focus();
+        importStatus.textContent = `已生成 HTML 并填入下方源码编辑器，保留 ${result.image_count} 张原图。可预览、撤销，再自行保存文章。`;
+        messageText('AI 生成的 HTML 已填入当前文章源码区，尚未保存。请预览确认后再保存。');
       } catch (err) {
-        reportClientFailure('ai', 'draft_generate_ui');
-        importStatus.textContent = 'AI 导入失败：' + (err.message || '网络错误') + '（原始输入仍保留，可重试）';
+        reportClientFailure('ai', 'html_import_ui');
+        importStatus.textContent = 'AI 导入失败：' + (err.message || '网络错误') + '（原始输入和当前文章均保留，可重试）';
       } finally {
         importButton.disabled = false;
       }

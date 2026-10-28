@@ -66,12 +66,14 @@ status=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
 test "$status" = "303"
 curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" http://127.0.0.1:8099/admin/ai/models >/dev/null
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'ci-demo'
+before_import=$(php -r 'require "app/bootstrap.php"; echo database()->query("SELECT COUNT(*) FROM guides")->fetchColumn();')
 response=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
-  --data-urlencode 'html=<h2>操作</h2><p>点击按钮<img src="https://example.org/a.png"></p><p>扫码<img src="https://example.org/b.png"></p>' \
+  --data-urlencode 'html=<article><h2>操作</h2><p>点击按钮<img src="https://example.org/a.png"></p><p>扫码<img data-src="https://example.org/b.png"></p></article>' \
   http://127.0.0.1:8099/admin/import/generate)
-php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 || !preg_match("~/admin/guides/edit\\?id=\\d+~",$j["edit_url"])) exit(1);' "$response"
-php -r 'require "app/bootstrap.php"; $g=database()->query("SELECT * FROM guides WHERE title = '\''模拟生成的教程'\'' ORDER BY id DESC LIMIT 1")->fetch(); if(!$g || $g["status"]!=="draft" || substr_count($g["body_html"],"<img ")!==2 || !str_contains($g["body_html"],"example.org/a.png")) exit(1);'
-echo 'HowHub mock chat2api e2e passed: encrypted config / model discovery / AI draft / image placeholders'
+php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 || !str_contains($j["html"], "<h2") || substr_count($j["html"], "<img ") !== 2 || str_contains($j["html"], "<script") || str_contains($j["html"], "javascript:")) exit(1);' "$response"
+after_import=$(php -r 'require "app/bootstrap.php"; echo database()->query("SELECT COUNT(*) FROM guides")->fetchColumn();')
+test "$before_import" = "$after_import"
+echo 'HowHub mock chat2api e2e passed: encrypted config / model discovery / raw HTML to editor / no database writes'
 
 # The optimization request is an editor-only preview, not a database write.
 blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
@@ -114,7 +116,7 @@ $s=getenv("STREAM_DATA");
 if (substr_count($s,"event: delta") < 2 || substr_count($s,"event: complete") !== 1) exit(1);
 preg_match("/event: complete\\s+data: ([^\\r\\n]+)/",$s,$m);
 $d=json_decode($m[1] ?? "",true);
-if (!$d || !$d["ok"] || $d["image_count"] !== 2) exit(2);
+if (!$d || !$d["ok"] || $d["image_count"] !== 2 || !str_contains($d["html"], "<img ") || str_contains($d["html"], "<script")) exit(2);
 '
 optimized_stream=$(curl -fsSN --max-time 30 -b "$jar" --data-urlencode "csrf_token=$token" \
   --data-urlencode 'title=电视教程' \
@@ -133,5 +135,5 @@ test "$blocked" = '303'
 blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
   -d 'html=<p>missing csrf</p>' http://127.0.0.1:8099/admin/guides/optimize/stream)
 test "$blocked" = '419'
-echo 'HowHub streaming AI e2e passed: chunked SSE import + optimize / final validation / auth / CSRF'
+echo 'HowHub streaming AI e2e passed: raw HTML stream + optimize / final validation / auth / CSRF'
 

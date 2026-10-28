@@ -102,6 +102,34 @@ if (str_contains($dangerousDraft['body'], 'attacker.example') || str_contains($d
 }
 echo "HowHub AI import smoke passed: base URL / key encryption / five Yuque images / sanitization\n";
 
+// Any supported webpage HTML, not just one editor's proprietary tags.
+$generic = '<html><body><nav>无关导航</nav><main><article><h2>路由器操作指南</h2><p>按下设置键并等待指示灯</p><img data-original="https://example.com/router.png"><p>完成配置</p></article></main><footer>版权页脚</footer></body></html>';
+$sourceGeneric = import_prepare_source($generic);
+if (str_contains($sourceGeneric['content'], '无关导航') || count($sourceGeneric['images']) !== 1 ||
+    $sourceGeneric['images'][0]['src'] !== 'https://example.com/router.png') {
+    throw new RuntimeException('通用网页 HTML 提取失败');
+}
+$html = import_safe_html_output('<h2 style="color:#6753cc">操作教程</h2><p>请点击设置</p><figure>[[IMAGE_1]]</figure><script>alert(1)</script><a href="javascript:bad()">危险</a>', $sourceGeneric);
+if (!str_contains($html, 'https://example.com/router.png') || str_contains($html, '<script') || str_contains($html, 'javascript:')) {
+    throw new RuntimeException('生成 HTML 图片恢复或安全过滤失败');
+}
+try {
+    import_safe_html_output('<h2>步骤</h2><p>丢失图片</p>', $sourceGeneric);
+    throw new RuntimeException('应该拒绝缺少图片标记的 AI 输出');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), '图片')) throw $e;
+}
+try {
+    import_safe_html_output('<h2>步骤</h2><p>伪造图片</p><img src="https://evil.invalid/a.png">[[IMAGE_1]]', $sourceGeneric);
+    throw new RuntimeException('应该拒绝 AI 伪造图片');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), '图片')) throw $e;
+}
+$plain = import_prepare_source("先检查网络设置。\n接着重新启动设备。");
+if ($plain['images'] !== [] || !str_contains($plain['content'], '重新启动')) throw new RuntimeException('普通文本无法导入');
+if (!str_contains(import_safe_html_output('<h2>第一步</h2><p>重启设备</p>', $plain), '<h2>第一步</h2>')) throw new RuntimeException('无图片 HTML 整理失败');
+echo "HowHub generic HTML import passed: CMS/WordPress-like HTML / plain text / images / safe markup\n";
+
 // Source HTML is editable, but the sanitizer only retains supported style/color tokens.
 $styled = sanitize_content('<h2 class="hh-step evil" style="color:#6144dd;background-color:#f2f1ff;font-size:23px;position:fixed;background-image:url(https://evil.invalid/a)">步骤</h2><img src="/uploads/photo.png" style="width:70%;position:absolute" onerror="x">');
 foreach (['class="hh-step"','color:#6144dd','background-color:#f2f1ff','font-size:23px','width:70%'] as $allowed) {

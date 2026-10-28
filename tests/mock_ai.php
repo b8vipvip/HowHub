@@ -7,9 +7,9 @@ if (($_SERVER['HTTP_AUTHORIZATION'] ?? '') !== 'Bearer sk-ci-local-token') {
     echo json_encode(['error' => ['message' => 'Unauthorized']]);
     exit;
 }
-function mock_reply(array $result, bool $stream): void
+function mock_reply(array|string $result, bool $stream): void
 {
-    $content = json_encode($result, JSON_UNESCAPED_UNICODE);
+    $content = is_string($result) ? $result : json_encode($result, JSON_UNESCAPED_UNICODE);
     if (!$stream) {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['choices' => [['message' => ['role' => 'assistant', 'content' => $content]]]], JSON_UNESCAPED_UNICODE);
@@ -50,8 +50,12 @@ if ($path === '/v1/chat/completions') {
         mock_reply($result, $stream);
         exit;
     }
-    $result = ['title' => '模拟生成的教程', 'summary' => '从网页提取的步骤',
-        'tags' => '测试,教程', 'body_html' => '<h2>第一步</h2><p>点击首页</p>[[IMAGE_1]]<h2>第二步</h2><p>扫码绑定</p>[[IMAGE_2]]'];
+    // HTML import returns raw HTML, not a JSON object.
+    $result = '<h2 style="color:#6753cc">第一步</h2><p>点击首页</p>';
+    if (str_contains($input, '[[IMAGE_1]]')) $result .= '<figure>[[IMAGE_1]]</figure>';
+    $result .= '<h2>第二步</h2><p>扫码绑定</p>';
+    if (str_contains($input, '[[IMAGE_2]]')) $result .= '<figure>[[IMAGE_2]]</figure>';
+    $result .= '<script>alert(1)</script><a href="javascript:alert(1)">不安全链接</a>';
     mock_reply($result, $stream);
     exit;
 }
