@@ -87,16 +87,18 @@ echo 'HowHub AI optimize e2e passed: mock provider / image retention / HTML whit
 # Diagnostic dashboard must be admin-only and errors must be exportable without secrets.
 unauth=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/admin/diagnostics)
 test "$unauth" = "303"
-curl -fsS -b "$jar" http://127.0.0.1:8099/admin/diagnostics | grep -q '诊断日志'
-curl -fsS -b "$jar" http://127.0.0.1:8099/admin/diagnostics | grep -q '运行版本'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/diagnostics > "$login"
+grep -q '诊断日志' "$login"
+grep -q '运行版本' "$login"
 csrf_blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'action=upload_ui' http://127.0.0.1:8099/admin/diagnostics/client)
 test "$csrf_blocked" = "419"
 client=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
   --data-urlencode 'feature=editor' --data-urlencode 'action=preview_ui' \
   --data-urlencode 'message=sk-super-secret' http://127.0.0.1:8099/admin/diagnostics/client)
 echo "$client" | grep -q '"ok":true'
-curl -fsS -b "$jar" 'http://127.0.0.1:8099/admin/diagnostics/export?feature=editor' | grep -q 'preview_ui'
-if curl -fsS -b "$jar" 'http://127.0.0.1:8099/admin/diagnostics/export?feature=editor' | grep -q 'sk-super-secret'; then
+curl -fsS -b "$jar" 'http://127.0.0.1:8099/admin/diagnostics/export?feature=editor' > "$login"
+grep -q 'preview_ui' "$login"
+if grep -q 'sk-super-secret' "$login"; then
   echo 'Diagnostics exported sensitive client payload' >&2; exit 1
 fi
 # System storage and diagnostics are not served from the public webroot.
