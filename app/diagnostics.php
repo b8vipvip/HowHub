@@ -133,6 +133,10 @@ function diag_install(): void
         if ($last && in_array((int)$last['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
             diag_event('critical', 'php', 'fatal', 'failure', ['message' => (string)$last['message'], 'http_code' => http_response_code() ?: 500]);
         }
+        // A POST SSE connection may legitimately return HTTP 200 while its
+        // application-level AI task fails. That outcome is recorded by the
+        // stream handler (complete/error), not a second generic request_end.
+        if (!empty($GLOBALS['howhub_sse_started'])) return;
         $code = http_response_code() ?: 200;
         $route = diag_route();
         if ($code >= 400 || (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && str_starts_with($route, '/admin'))) {
