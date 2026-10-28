@@ -84,7 +84,13 @@ function diag_event(string $level, string $feature, string $action, string $resu
         if (!is_dir($dir) && !@mkdir($dir, 0770, true) && !is_dir($dir)) return;
         $lock = @fopen($dir . '/.lock', 'c');
         if (!$lock) return;
-        if (!flock($lock, LOCK_EX)) { fclose($lock); return; }
+        // Telemetry is best-effort. A stuck/slow log writer must never block
+        // login or keep the PHP session locked until FPM kills the request.
+        // Do not use a blocking LOCK_EX (it caused real 499/502 incidents).
+        if (!@flock($lock, LOCK_EX | LOCK_NB)) {
+            @fclose($lock);
+            return;
+        }
         $current = $dir . '/events.jsonl';
         if (is_file($current) && filesize($current) >= HH_DIAG_MAX_BYTES) {
             for ($n = HH_DIAG_HISTORY; $n >= 1; $n--) {
@@ -101,8 +107,8 @@ function diag_event(string $level, string $feature, string $action, string $resu
             'version' => diag_version(), 'details' => $extra,
         ];
         @file_put_contents($current, json_encode($record, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
-        flock($lock, LOCK_UN);
-        fclose($lock);
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
     } catch (Throwable $ignore) {
         // Fail open: telemetry must never interrupt the site or expose credentials in error output.
     }

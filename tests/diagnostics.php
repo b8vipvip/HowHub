@@ -18,6 +18,34 @@ try {
     }
     if (!str_contains($raw, 'model_sync') || !str_contains($raw, '"version"') || !str_contains($raw, 'request_id')) throw new RuntimeException('Missing structured fields');
     if (diag_entries(10, 'critical') !== [] || count(diag_entries(10, 'error', 'ai')) !== 1) throw new RuntimeException('Filters failed');
+    // A second process holding the diagnostics lock must never block requests.
+    $ready = $dir . '/lock-held.signal';
+    $holdCode = '$handle=fopen($argv[1],"c"); if(!$handle || !flock($handle, LOCK_EX)) exit(2); file_put_contents($argv[2], "held"); usleep(2500000); flock($handle, LOCK_UN); fclose($handle);';
+    $hold = proc_open([PHP_BINARY, '-r', $holdCode, $dir . '/.lock', $ready],
+        [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $handles);
+    if (!is_resource($hold)) throw new RuntimeException('Cannot launch held-lock test');
+    fclose($handles[0]);
+    try {
+        $held = false;
+        for ($attempt = 0; $attempt < 70; ++$attempt) {
+            if (is_file($ready)) { $held = true; break; }
+            usleep(20000);
+        }
+        if (!$held) throw new RuntimeException('Lock holder did not initialize');
+        $start = microtime(true);
+        diag_event('info', 'system', 'held_lock_test', 'success');
+        $elapsed = microtime(true) - $start;
+        if ($elapsed >= 0.35) throw new RuntimeException('Diagnostics blocked on held lock for ' . $elapsed . ' seconds');
+        if (count(diag_entries(10)) !== 2) throw new RuntimeException('Failed to skip contested telemetry record');
+    } finally {
+        proc_terminate($hold);
+        foreach ([$handles[1], $handles[2]] as $pipe) fclose($pipe);
+        proc_close($hold);
+        @unlink($ready);
+    }
+    // Once contention has ended, diagnostics still work.
+    diag_event('info', 'system', 'lock_recovered', 'success');
+    if ((diag_entries(1)[0]['action'] ?? '') !== 'lock_recovered') throw new RuntimeException('Diagnostics did not recover after contention');
     // At least one actual rotation is expected; 5 x 1MB bounds disk usage.
     for ($i = 0; $i < 6000; $i++) diag_event('info', 'system', 'rotation_test', 'success', ['message' => str_repeat('x', 100)]);
     $files = glob($dir . '/events.jsonl*') ?: [];

@@ -78,6 +78,29 @@ status=$(curl -sS -b "$jar" -c "$jar" -o /dev/null -w '%{http_code}' -X POST \
   --data-urlencode 'password=test-password-12345' http://127.0.0.1:8099/admin/login)
 test "$status" = "303"
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin | grep -q '教程总数'
+# A held telemetry lock must not prevent a NEW admin session from logging in.
+held_login_jar=$(mktemp)
+held_login_page=$(mktemp)
+held_marker=$(mktemp)
+rm -f "$held_marker"
+flock -x storage/diagnostics/.lock bash -c 'touch "$1"; sleep 3' _ "$held_marker" &
+held_pid=$!
+for attempt in $(seq 1 60); do
+  [[ -f "$held_marker" ]] && break
+  sleep .02
+done
+test -f "$held_marker"
+curl -fsS --max-time 2 -c "$held_login_jar" http://127.0.0.1:8099/admin/login > "$held_login_page"
+held_csrf=$(grep -o 'name="csrf_token" value="[^"]*"' "$held_login_page" | head -1 | cut -d '"' -f 4)
+test -n "$held_csrf"
+held_status=$(curl -sS --max-time 2 -b "$held_login_jar" -c "$held_login_jar" -o /dev/null -w '%{http_code}' \
+  --data-urlencode "csrf_token=$held_csrf" --data-urlencode 'username=testadmin' \
+  --data-urlencode 'password=test-password-12345' http://127.0.0.1:8099/admin/login)
+test "$held_status" = "303"
+curl -fsS --max-time 2 -b "$held_login_jar" http://127.0.0.1:8099/admin | grep -q '教程总数'
+wait "$held_pid"
+rm -f "$held_login_jar" "$held_login_page" "$held_marker"
+echo 'Login lock contention e2e passed: authenticates with held diagnostics lock'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'rich-editor'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'media-dialog'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/media | grep -q '素材管理'

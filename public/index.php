@@ -155,6 +155,8 @@ if ($path === '/admin/login') {
         $attempts = array_values(array_filter($attempts, static fn($t) => is_int($t) && $t > time() - 900));
         if (count($attempts) >= 8) {
             $error = '尝试次数过多，请 15 分钟后再试。';
+            // All writes are complete: never hold the session lock while logging.
+            session_write_close();
             diag_event('warning', 'auth', 'rate_limit', 'blocked');
         } else {
             $stmt = $pdo->prepare('SELECT * FROM users WHERE username = ?');
@@ -164,14 +166,17 @@ if ($path === '/admin/login') {
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = (int)$user['id'];
                 $_SESSION['login_attempts'] = [];
+                // Persist auth and the regenerated ID before DB/diagnostic IO.
+                session_write_close();
                 $pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id=?')->execute([$user['id']]);
                 diag_event('info', 'auth', 'login', 'success');
                 redirect_to('/admin');
             }
-            diag_event('warning', 'auth', 'login', 'failure');
             $attempts[] = time();
             $_SESSION['login_attempts'] = $attempts;
             $error = '用户名或密码不正确。';
+            session_write_close();
+            diag_event('warning', 'auth', 'login', 'failure');
         }
     }
     page_start('登录后台');
