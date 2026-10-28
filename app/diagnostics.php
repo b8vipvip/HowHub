@@ -51,7 +51,7 @@ function diag_route(): string
     // Never save raw unknown paths: they may contain authentication material.
     if (preg_match('~^/guide/[^/]+$~', $path)) return '/guide/:slug';
     if (preg_match('~^/file/\d+$~', $path)) return '/file/:id';
-    $known = ['/', '/healthz', '/admin', '/admin/login', '/admin/logout', '/admin/ai-settings', '/admin/ai/models', '/admin/import/clean', '/admin/import/generate', '/admin/guides/optimize', '/admin/upload', '/admin/media/list', '/admin/media/action', '/admin/media', '/admin/guides', '/admin/guides/new', '/admin/guides/edit', '/admin/guides/delete', '/admin/guides/save', '/admin/categories', '/admin/settings', '/admin/password', '/admin/diagnostics', '/admin/diagnostics/export', '/admin/diagnostics/client'];
+    $known = ['/', '/healthz', '/admin', '/admin/login', '/admin/logout', '/admin/ai-settings', '/admin/ai/models', '/admin/import/clean', '/admin/import/generate', '/admin/import/generate/stream', '/admin/guides/optimize', '/admin/guides/optimize/stream', '/admin/upload', '/admin/media/list', '/admin/media/action', '/admin/media', '/admin/guides', '/admin/guides/new', '/admin/guides/edit', '/admin/guides/delete', '/admin/guides/save', '/admin/categories', '/admin/settings', '/admin/password', '/admin/diagnostics', '/admin/diagnostics/export', '/admin/diagnostics/client'];
     return in_array($path, $known, true) ? $path : '/other';
 }
 

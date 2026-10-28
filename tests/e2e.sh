@@ -105,3 +105,33 @@ fi
 private=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/storage/diagnostics/events.jsonl)
 test "$private" = "404"
 echo 'HowHub diagnostics e2e passed: admin / filter / export / CSRF / no client secrets / private storage'
+# Streaming endpoints must emit multiple incremental delta frames and exactly one complete event.
+stream=$(curl -fsSN --max-time 30 -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'html=<h2>扫码教程</h2><p>第一步<img src="https://example.org/a.png"></p><p>第二步<img src="https://example.org/b.png"></p>' \
+  http://127.0.0.1:8099/admin/import/generate/stream)
+STREAM_DATA="$stream" php -r '
+$s=getenv("STREAM_DATA");
+if (substr_count($s,"event: delta") < 2 || substr_count($s,"event: complete") !== 1) exit(1);
+preg_match("/event: complete\\s+data: ([^\\r\\n]+)/",$s,$m);
+$d=json_decode($m[1] ?? "",true);
+if (!$d || !$d["ok"] || $d["image_count"] !== 2) exit(2);
+'
+optimized_stream=$(curl -fsSN --max-time 30 -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'title=电视教程' \
+  --data-urlencode 'html=<h2>第一步</h2><p>操作不要发送验证码</p><figure><img src="/uploads/one.png"></figure>' \
+  http://127.0.0.1:8099/admin/guides/optimize/stream)
+STREAM_DATA="$optimized_stream" php -r '
+$s=getenv("STREAM_DATA");
+if (substr_count($s,"event: delta") < 2 || substr_count($s,"event: complete") !== 1) exit(1);
+preg_match("/event: complete\\s+data: ([^\\r\\n]+)/",$s,$m);
+$d=json_decode($m[1] ?? "",true);
+if (!$d || !$d["ok"] || !str_contains($d["html"],"/uploads/one.png")) exit(2);
+'
+blocked=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+  -d 'html=<p>unauthorized</p>' http://127.0.0.1:8099/admin/import/generate/stream)
+test "$blocked" = '303'
+blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \
+  -d 'html=<p>missing csrf</p>' http://127.0.0.1:8099/admin/guides/optimize/stream)
+test "$blocked" = '419'
+echo 'HowHub streaming AI e2e passed: chunked SSE import + optimize / final validation / auth / CSRF'
+

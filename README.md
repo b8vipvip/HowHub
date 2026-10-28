@@ -193,3 +193,13 @@ AI 仅接收手动提交的网页源码/文本及图片占位符，不会抓取�
 - 如果遇到故障，请到「诊断日志」导出 JSONL 并连同请求 ID、发生时间发送给开发者；日志记录的是操作状态，不包含文章正文及图片二进制。
 - 通过 `php tests/diagnostics.php` 可离线验证文件轮转和脱敏；GitHub Actions 自动运行此检查。
 - 原有 SQLite 数据、图片、附件和密钥文件均不迁移、不重置。升级前仍建议备份 `storage/` 和 `public/uploads/`，并在宝塔启用常规数据备份。
+
+## AI 真实流式进度（v0.6）
+
+- 在「AI 导入网页教程」和「AI 优化」时显示实时进度面板、已等待秒数、接收字符数和 AI 增量输出（只显示纯文本，不执行模型生成的 HTML）。
+- 从 chat2api 调用 `POST /v1/chat/completions` 且 `stream: true`，服务端通过 `text/event-stream` 边接收边传给编辑器（不再等待完整 AI 响应）。
+- 支持一键取消；没有收到最终 `complete` 事件时**不**应用 AI 优化，**不**写入部分草稿。原有非流式兼容接口仍保留。
+- 流式阶段包括连接中、等待首个输出、正在生成、校验结果、保存草稿（或安全应用至源码模式）；等待期间的动画不表示虚构的完成百分比。
+- 首次部署请确认 PHP `curl`、`openssl` 可用。Nginx 会收到 `X-Accel-Buffering: no`；如果仍在最后一刻一次性展示，检查宝塔 Nginx/PHP-FPM 是否额外缓冲输出。
+- 对长任务检查网站所用 Nginx `fastcgi_read_timeout` 与 PHP-FPM `request_terminate_timeout`：至少能覆盖所配置的上游 Worker 最大执行时长。HowHub 的 cURL 最长等待 660 秒。默认 PHP 进程会被请求占用，建议限制同时发起的 AI 请求。
+- 诊断日志只记录流式调用结果、时长、状态码与输出长度，不保存用户提交的网页代码或模型回复。

@@ -155,6 +155,110 @@
   });
   document.getElementById('editor-preview-close').addEventListener('click', () => previewDialog.close());
   previewDialog.addEventListener('close', () => { previewFrame.removeAttribute('srcdoc'); });
+  // A POST + ReadableStream SSE reader (EventSource cannot POST the source HTML or CSRF token).
+  // Never interpret streamed model text as live HTML; show it as inert text until server validation.
+  async function readAIStream(url, formData, panel) {
+    const stage = panel.querySelector('.ai-stream-stage');
+    const elapsed = panel.querySelector('.ai-stream-elapsed');
+    const count = panel.querySelector('.ai-stream-count');
+    const output = panel.querySelector('.ai-stream-output');
+    const cancel = panel.querySelector('.ai-stream-cancel');
+    const loading = panel.querySelector('.ai-stream-loading');
+    const controller = new AbortController();
+    const started = Date.now();
+    let total = 0;
+    let completed = null;
+    let buffer = '';
+    let stopped = false;
+    let generationStarted = false;
+    const timer = window.setInterval(() => {
+      elapsed.textContent = `${Math.floor((Date.now() - started) / 1000)} 秒`;
+      if (!generationStarted && !stopped && Date.now() - started > 10000) {
+        stage.textContent = '请求已发送；AI 可能仍在思考或排队，等待首个输出…';
+      }
+    }, 1000);
+    panel.hidden = false;
+    loading.classList.add('working');
+    stage.textContent = '正在连接 AI 服务…';
+    output.textContent = '';
+    count.textContent = '已收到 0 字符';
+    cancel.disabled = false;
+    cancel.onclick = () => { stopped = true; controller.abort(); stage.textContent = '已取消本次调用，现有文章未修改。'; };
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    const dispatch = (frame) => {
+      let eventName = 'message';
+      const dataLines = [];
+      for (const line of frame.split('\n')) {
+        const value = line.replace(/\r$/, '');
+        if (value.startsWith('event:')) eventName = value.slice(6).trim();
+        if (value.startsWith('data:')) dataLines.push(value.slice(5).replace(/^ /, ''));
+      }
+      if (!dataLines.length) return;
+      let data;
+      try { data = JSON.parse(dataLines.join('\n')); } catch { return; }
+      if (eventName === 'status') {
+        if (generationStarted && /等待首个输出/.test(data.text || '')) return;
+        stage.textContent = String(data.text || '处理中…');
+      } else if (eventName === 'delta') {
+        const piece = String(data.text || '');
+        total += piece.length;
+        generationStarted = true;
+        stage.textContent = 'AI 正在逐步生成内容…';
+        output.textContent += piece;
+        // Bound rendering cost (never show or execute raw HTML).
+        if (output.textContent.length > 90000) output.textContent = '…\n' + output.textContent.slice(-65000);
+        output.scrollTop = output.scrollHeight;
+        count.textContent = `已收到 ${total.toLocaleString()} 字符`;
+      } else if (eventName === 'complete') {
+        completed = data;
+        stage.textContent = '完成：已通过服务器校验';
+      } else if (eventName === 'error') {
+        throw new Error(String(data.error || 'AI 运行失败'));
+      }
+    };
+    try {
+      const response = await fetch(url, {
+        method: 'POST', body: formData, credentials:'same-origin', cache:'no-store',
+        signal:controller.signal, headers: {'Accept':'text/event-stream'}
+      });
+      if (!response.ok) {
+        let error = `HTTP ${response.status}`;
+        try { error = (await response.json()).error || error; } catch (_) { /* use HTTP status */ }
+        throw new Error(error);
+      }
+      if (!response.body) throw new Error('浏览器不支持本次流式输出');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream:true});
+        buffer = buffer.replace(/\r\n/g, '\n');
+        if (buffer.length > 2000000) throw new Error('AI 流式协议数据过大');
+        let pos;
+        while ((pos = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0,pos);
+          buffer = buffer.slice(pos+2);
+          dispatch(frame);
+        }
+      }
+      if (buffer.trim()) dispatch(buffer);
+      if (!completed?.ok) throw new Error('AI 连接已关闭，但没有收到完成确认；原有内容未修改');
+      loading.classList.remove('working');
+      return completed;
+    } catch (error) {
+      loading.classList.remove('working');
+      if (controller.signal.aborted) throw new Error('已取消本次调用，原有内容保留');
+      stage.textContent = '失败：' + (error.message || '流式连接中断');
+      throw error;
+    } finally {
+      window.clearInterval(timer);
+      cancel.disabled = true;
+      cancel.onclick = null;
+      elapsed.textContent = `${Math.floor((Date.now() - started) / 1000)} 秒`;
+    }
+  }
+
   optimizeButton.addEventListener('click', async () => {
     const original = currentHtml();
     if (!original.trim()) { messageText('请输入正文后再进行 AI 优化。', true); return; }
@@ -166,9 +270,7 @@
     optimizeButton.disabled = true;
     messageText('AI 正在优化文案、配色、版式和图片尺寸。当前文章不会被自动保存…');
     try {
-      const response = await fetch('/admin/guides/optimize', { method: 'POST', body: formData, credentials: 'same-origin', cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || 'AI 优化失败');
+      const data = await readAIStream('/admin/guides/optimize/stream', formData, document.getElementById('ai-optimize-live'));
       if (currentHtml() !== original) throw new Error('AI 运行期间正文已经变化，为避免覆盖新内容，未应用优化；请重新操作');
       previousAIHtml = original;
       sourceEditor.value = data.html;
@@ -493,9 +595,7 @@
       importButton.disabled = true;
       importStatus.textContent = 'AI 正在提取步骤、图片顺序和标题，生成后会创建草稿…';
       try {
-        const response = await fetch('/admin/import/generate', { method: 'POST', body: data, credentials: 'same-origin' });
-        const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || 'AI 未能创建草稿');
+        const result = await readAIStream('/admin/import/generate/stream', data, document.getElementById('ai-import-live'));
         importStatus.textContent = `已创建草稿，保留 ${result.image_count} 张原图，正在打开编辑器…`;
         window.location.assign(result.edit_url);
       } catch (err) {

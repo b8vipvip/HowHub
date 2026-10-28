@@ -94,3 +94,18 @@ a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}b
 .diag-filters{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:12px 0 18px}.diag-filters label{display:grid;gap:5px;font-size:12px;color:#6d7891}.diag-filters select{padding:9px 12px;border-radius:8px;border:1px solid #dfe4ee;background:#fff}.diag-filters .button{height:39px}
 .diag-table{font-size:12px}.diag-table th,.diag-table td{padding:11px 9px}.diag-table td small{font-size:11px;color:#8992a6}.diag-nowrap{white-space:nowrap}.diag-level{font-weight:700;font-size:11px;border-radius:7px;padding:5px 8px;background:#eef0ff;color:#6254cc}.diag-warning{background:#fff3db;color:#9a681c}.diag-error,.diag-critical{background:#ffe9ed;color:#b42a44}.diag-table details{max-width:420px}.diag-table details summary{cursor:pointer;white-space:nowrap;color:#6653d4}.diag-table details pre{white-space:pre-wrap;word-break:break-all;font-size:11px;color:#4b5670;background:#f6f8fc;padding:10px;border-radius:8px;max-height:250px;overflow:auto}
 @media(max-width:960px){.diag-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:540px){.diag-summary-grid{grid-template-columns:1fr}}
+
+/* AI import/optimization: genuine streamed output, waiting indicator, cancel. */
+.ai-stream-panel{margin:16px 0;padding:16px;background:#f8f9ff;border:1px solid #d7dcf7;border-radius:14px}
+.ai-stream-panel[hidden]{display:none}
+.ai-stream-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ai-stream-head strong{color:#342e66}
+.ai-stream-head .ai-stream-elapsed{margin-left:auto;color:#6f7696;font-variant-numeric:tabular-nums}
+.ai-stream-head .ai-stream-cancel{padding:6px 12px;font-size:12px}
+.ai-stream-stage,.ai-stream-count{margin:8px 0 0;color:#575e86;font-size:13px}
+.ai-stream-output{font-family:ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid #e5e8f7;border-radius:9px;margin:10px 0 0;padding:12px;max-height:280px;overflow-y:auto;font-size:12px;line-height:1.6;min-height:56px}
+.ai-stream-loading{width:100%;height:3px;background:#e5e8fa;overflow:hidden;border-radius:4px;margin-top:10px}
+.ai-stream-loading::before{content:'';display:block;width:35%;height:100%;background:#6552e8;transform:translateX(-110%)}
+.ai-stream-loading.working::before{animation:hh-ai-progress 1.8s ease-in-out infinite}
+@keyframes hh-ai-progress{to{transform:translateX(310%)}}
+@media(prefers-reduced-motion:reduce){.ai-stream-loading.working::before{animation:none;transform:translateX(0);width:100%}}
