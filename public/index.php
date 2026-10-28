@@ -328,6 +328,10 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
         echo 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) . "\n\n";
         flush();
     };
+    // SSE transport returns HTTP 200 before generation has finished. Only
+    // the stream's complete/error event owns the application terminal state.
+    // Suppress the generic HTTP-200 success record for this SSE request.
+    $GLOBALS['howhub_sse_started'] = true;
     $emit('status', ['text'=>'正在检查内容并准备调用 AI…']);
     diag_event('info', 'ai', $action, 'start');
     try {
