@@ -17,6 +17,22 @@ test "$maintenance_status" = 503
 
 curl -fsS http://127.0.0.1:8099/ | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'
 curl -fsS http://127.0.0.1:8099/guide/tcl-leiniao-kugou-account | grep -q '不要点微信图标绑定'
+
+# Article detail is a focused reading view: no topbar, category name or TOC sidebar.
+article_html=$(curl -fsS http://127.0.0.1:8099/guide/tcl-leiniao-kugou-account)
+ARTICLE_HTML="$article_html" php -r '
+$html = getenv("ARTICLE_HTML");
+foreach (["<main class=\"reader-shell reader-clean", "TCL雷鸟电视查看和绑定酷狗账号", "不要点微信图标绑定", "返回全部文章"] as $required) {
+    if (!str_contains($html, $required)) exit(1);
+}
+foreach (["<header class=\"topbar\"", "<nav class=\"nav-links\"", "本页目录", "reader-sidebar", "guide-category-pill", "class=\"breadcrumb\"", "设备与电视"] as $forbidden) {
+    if (str_contains($html, $forbidden)) exit(2);
+}
+if (substr_count($html, "<img ") !== 5) exit(3);
+';
+curl -fsS http://127.0.0.1:8099/ | grep -q '<header class="topbar">'
+echo 'Article reading mode e2e passed: no navbar/category/TOC, content and images preserved'
+
 curl -fsS 'http://127.0.0.1:8099/?q=%E9%85%B7%E7%8B%97' | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'
 
 # Homepage shows every published article without cover thumbnails or pagination.

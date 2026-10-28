@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function page_start(string $title, string $description = '', bool $admin = false): void
+function page_start(string $title, string $description = '', bool $admin = false, bool $showHeader = true): void
 {
     $site = setting('site_title', 'HowHub');
     $description = $description !== '' ? $description : setting('site_description');
@@ -10,7 +10,9 @@ function page_start(string $title, string $description = '', bool $admin = false
     $auth = $admin ? '<form class="logout" action="/admin/logout" method="post">' . csrf_input() . '<button type="submit">退出登录</button></form>' : '<a class="nav-action" href="/admin">管理后台 <span aria-hidden="true">↗</span></a>';
     $class = $admin ? 'admin-page' : 'site-page';
     echo '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><meta name="description" content="' . h($description) . '"><title>' . h($fullTitle) . '</title><link rel="stylesheet" href="/assets/style.css?v=' . (int)@filemtime(HOWHUB_ROOT . '/public/assets/style.css') . '"></head><body class="' . $class . '">';
+    if ($showHeader) {
     echo '<header class="topbar"><div class="shell nav-inner"><a href="/" class="brand" aria-label="HowHub 首页"><span class="brand-logo"><span class="brand-mark">H</span></span><span>' . h($site) . '</span><span class="brand-dot">.</span></a><nav class="nav-links" aria-label="主导航">' . $nav . '</nav><div class="nav-right">' . $auth . '</div></div></header>';
+    }
     if (isset($_SESSION['flash'])) {
         $message = $_SESSION['flash'];
         unset($_SESSION['flash']);

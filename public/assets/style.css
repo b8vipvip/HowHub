@@ -138,3 +138,12 @@ a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}b
 .home-list-empty a{color:var(--violet);font-weight:650}
 .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:700px){.home-simple{width:calc(100% - 32px);padding-top:30px;padding-bottom:60px}.home-simple-heading h1{font-size:25px}.home-search{margin:20px 0 18px}.home-search button{padding:0 17px}.home-categories{gap:6px 9px;padding-bottom:19px}.home-article-item{padding:17px 0 19px}.home-article-title{font-size:15px}}
+
+/* v0.8.2: distraction-free article reader, no site header/category/TOC. */
+.reader-clean{max-width:920px;padding-top:48px;padding-bottom:70px}
+.reader-clean .reader-layout{display:block}
+.reader-clean .reader-article{max-width:800px;margin:0 auto;min-width:0}
+.reader-clean .article-heading h1{margin-top:0}
+.reader-clean .article-content h2,.reader-clean .article-content h3{scroll-margin-top:24px}
+.reader-clean .article-bottom{text-align:left;padding-top:20px;margin-top:55px}
+@media(max-width:700px){.reader-clean{width:calc(100% - 32px);padding-top:26px;padding-bottom:50px}.reader-clean .article-heading{padding-bottom:24px}.reader-clean .article-heading h1{font-size:clamp(24px,6vw,34px)}.reader-clean .article-content{font-size:15px}}

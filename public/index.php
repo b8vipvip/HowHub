@@ -95,28 +95,23 @@ if ($path === '/' && $method === 'GET') {
 
 if (preg_match('~^/guide/([^/]+)$~u', $path, $match) && $method === 'GET') {
     $slug = rawurldecode($match[1]);
-    $sql = 'SELECT g.*, c.name AS category_name, c.slug AS category_slug FROM guides g LEFT JOIN categories c ON c.id=g.category_id WHERE g.slug=?';
-    $stmt = $pdo->prepare($sql);
+    $stmt = $pdo->prepare('SELECT * FROM guides WHERE slug=?');
     $stmt->execute([$slug]);
     $guide = $stmt->fetch();
     if (!$guide || ($guide['status'] !== 'published' && !logged_in())) {
         error_page(404, '指南未找到', '这篇指南可能已移动或尚未发布。');
     }
     $pdo->prepare('UPDATE guides SET views=views+1 WHERE id=?')->execute([$guide['id']]);
-    [$body, $toc] = render_with_toc($guide['body_html']);
-    page_start($guide['title'], $guide['summary']);
-    echo '<main class="reader-shell shell"><div class="breadcrumb"><a href="/">首页</a><span>›</span><a href="/?category=' . h(rawurlencode((string)($guide['category_slug'] ?? ''))) . '">' . h($guide['category_name'] ?: '实用指南') . '</a><span>›</span><span>正文</span></div>';
-    echo '<div class="reader-layout"><article class="reader-article"><div class="article-heading"><div class="guide-category-pill">✳ ' . h($guide['category_name'] ?: '实用指南') . '</div><h1>' . h($guide['title']) . '</h1><p>' . h($guide['summary']) . '</p><div class="article-meta"><span>HowHub 编辑部</span><i></i><span>更新于 ' . h(substr($guide['updated_at'], 0, 10)) . '</span><i></i><span>' . ((int)$guide['views'] + 1) . ' 次阅读</span></div></div><div class="article-content">' . $body . '</div><div class="article-bottom"><div class="article-end-icon">✓</div><h3>你已经读完这篇指南</h3><p>希望这份步骤说明对你有所帮助。</p><a href="/">← 返回更多指南</a></div></article><aside class="reader-sidebar"><div class="toc-card"><div class="toc-title">本页目录</div>';
-    if ($toc) {
-        echo '<ul>';
-        foreach ($toc as $i => $item) {
-            echo '<li class="' . ($item['depth'] === 'h3' ? 'toc-indent' : '') . '"><a href="#' . h($item['id']) . '"><span>' . str_pad((string)($i + 1), 2, '0', STR_PAD_LEFT) . '</span>' . h($item['label']) . '</a></li>';
-        }
-        echo '</ul>';
-    } else {
-        echo '<p class="muted">暂无章节标题</p>';
-    }
-    echo '</div><div class="sidebar-tip">💡 <strong>小提示</strong><p>按顺序操作并结合配图查看，更容易完成设置。</p></div></aside></div></main>';
+    $body = sanitize_content($guide['body_html']);
+    // The public reading page has no site top navigation, category labels,
+    // breadcrumb trail or table-of-contents sidebar.
+    page_start($guide['title'], $guide['summary'], false, false);
+    echo '<main class="reader-shell reader-clean shell"><div class="reader-layout"><article class="reader-article">';
+    echo '<div class="article-heading"><h1>' . h($guide['title']) . '</h1><p>' . h($guide['summary']) . '</p>';
+    echo '<div class="article-meta"><span>更新于 ' . h(substr((string)$guide['updated_at'], 0, 10)) . '</span><i></i><span>' . ((int)$guide['views'] + 1) . ' 次阅读</span></div></div>';
+    echo '<div class="article-content">' . $body . '</div>';
+    echo '<div class="article-bottom"><a href="/">← 返回全部文章</a></div>';
+    echo '</article></div></main>';
     page_end();
     exit;
 }
