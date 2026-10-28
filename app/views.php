@@ -6,7 +6,7 @@ function page_start(string $title, string $description = '', bool $admin = false
     $site = setting('site_title', 'HowHub');
     $description = $description !== '' ? $description : setting('site_description');
     $fullTitle = $title === '' ? $site . ' · 每一步，都讲清楚' : $title . ' · ' . $site;
-    $nav = $admin ? '<a href="/admin">工作台</a><a href="/admin/guides">教程管理</a><a href="/admin/categories">分类管理</a><a href="/admin/media">素材管理</a><a href="/admin/ai-settings">AI 供应商</a><a href="/admin/settings">站点设置</a><a href="/admin/diagnostics">诊断日志</a><a href="/" target="_blank">查看网站 ↗</a>' : '<a href="/#categories">全部分类</a><a href="/?q=电视">热门指南</a>';
+    $nav = $admin ? '<a href="/admin">工作台</a><a href="/admin/guides">教程管理</a><a href="/admin/categories">分类管理</a><a href="/admin/media">素材管理</a><a href="/admin/ai-settings">AI 供应商</a><a href="/admin/settings">站点设置</a><a href="/admin/diagnostics">诊断日志</a><a href="/" target="_blank">查看网站 ↗</a>' : '<a href="/#guides">全部文章</a><a href="/#categories">分类</a>';
     $auth = $admin ? '<form class="logout" action="/admin/logout" method="post">' . csrf_input() . '<button type="submit">退出登录</button></form>' : '<a class="nav-action" href="/admin">管理后台 <span aria-hidden="true">↗</span></a>';
     $class = $admin ? 'admin-page' : 'site-page';
     echo '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f8fc"><meta name="description" content="' . h($description) . '"><title>' . h($fullTitle) . '</title><link rel="stylesheet" href="/assets/style.css?v=' . (int)@filemtime(HOWHUB_ROOT . '/public/assets/style.css') . '"></head><body class="' . $class . '">';

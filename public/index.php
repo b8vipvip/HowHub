@@ -24,10 +24,8 @@ if ($path === '/healthz') {
 
 if ($path === '/' && $method === 'GET') {
     $q = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 100);
-    $categorySlug = trim((string)($_GET['category'] ?? ''));
-    $page = max(1, min(100000, (int)($_GET['page'] ?? 1)));
-    $limit = 9;
-    $categories = $pdo->query('SELECT * FROM categories ORDER BY sort_order, id')->fetchAll();
+    $categorySlug = mb_substr(trim((string)($_GET['category'] ?? '')), 0, 100);
+    $categories = $pdo->query('SELECT name, slug FROM categories ORDER BY sort_order, id')->fetchAll();
     $filters = ["g.status = 'published'"];
     $params = [];
     if ($q !== '') {
@@ -40,42 +38,48 @@ if ($path === '/' && $method === 'GET') {
         $filters[] = 'c.slug = :category';
         $params[':category'] = $categorySlug;
     }
-    $where = implode(' AND ', $filters);
-    $stmt = $pdo->prepare('SELECT COUNT(*) FROM guides g LEFT JOIN categories c ON c.id = g.category_id WHERE ' . $where);
+    // All published articles, with no cover images or 9-item pagination.
+    $stmt = $pdo->prepare(
+        'SELECT g.title, g.slug, g.summary, g.published_at, g.created_at, c.name AS category_name
+         FROM guides g LEFT JOIN categories c ON c.id = g.category_id
+         WHERE ' . implode(' AND ', $filters) .
+        ' ORDER BY g.featured DESC, COALESCE(g.published_at, g.created_at) DESC, g.id DESC'
+    );
     $stmt->execute($params);
-    $total = (int)$stmt->fetchColumn();
-    $stmt = $pdo->prepare('SELECT g.*, c.name AS category_name FROM guides g LEFT JOIN categories c ON c.id=g.category_id WHERE ' . $where . ' ORDER BY g.featured DESC, g.published_at DESC, g.id DESC LIMIT :limit OFFSET :offset');
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value, PDO::PARAM_STR);
-    }
-    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-    $stmt->bindValue(':offset', ($page - 1) * $limit, PDO::PARAM_INT);
-    $stmt->execute();
     $guides = $stmt->fetchAll();
+    $filterLink = static function (string $slug) use ($q): string {
+        $parts = [];
+        if ($q !== '') $parts['q'] = $q;
+        if ($slug !== '') $parts['category'] = $slug;
+        return '/' . ($parts ? '?' . http_build_query($parts) : '') . '#guides';
+    };
+
     page_start('', setting('site_description'));
-    echo '<main><section class="hero shell"><div class="hero-copy"><div class="hero-badge"><span class="badge-sparkle">✳</span> YOUR GUIDE TO EVERYTHING</div><h1>好方法，<br><span>一步就懂。</span></h1><p>' . h(setting('site_description')) . '<br>从设备设置到日常技巧，找到答案，从这里开始。</p><form class="search-bar" method="get" action="/"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7.5"/><path d="m16.5 16.5 5 5"/></svg><input name="q" maxlength="100" aria-label="搜索教程" placeholder="搜索教程、设备、软件或问题..." value="' . h($q) . '"><button type="submit">搜索指南 <span>↗</span></button></form><div class="hero-hints"><span>热门搜索</span><a href="/?q=雷鸟电视">雷鸟电视</a><a href="/?q=酷狗">酷狗账号</a><a href="/?q=会员">会员绑定</a></div></div><div class="hero-art" aria-hidden="true"><div class="art-grid"></div><div class="art-glow"></div><div class="floating-note note-main"><div class="mini-tag"><span class="status-circle"></span> HOW TO GUIDE</div><div class="floating-icon">✦</div><div class="note-lines"><span></span><span></span><span></span></div><div class="step-indicator"><span>01</span> — <span>02</span> — <strong>03</strong></div></div><div class="floating-note note-back"><span class="note-check">✓</span><span>轻松搞定</span></div><span class="art-star star-a">✳</span><span class="art-star star-b">✦</span></div></section>';
-    echo '<section class="section shell" id="categories"><div class="section-header"><div><div class="kicker">EXPLORE TOPICS</div><h2>按主题探索</h2><p>想解决什么问题？从这里找到对应的教程。</p></div></div><div class="category-strip"><a class="category-tile ' . ($categorySlug === '' ? 'active' : '') . '" href="/#guides"><span class="cat-icon">✦</span><span>全部指南</span><span class="cat-arrow">↗</span></a>';
-    $icons = ['devices' => '▣', 'software' => '⌘', 'accounts' => '♙', 'lifestyle' => '☼'];
+    echo '<main class="home-simple shell"><header class="home-simple-heading"><h1>教程与指南</h1><p>查找教程、攻略与操作步骤。</p></header>';
+    echo '<form class="home-search" method="get" action="/" role="search"><label class="sr-only" for="home-query">搜索文章</label><input id="home-query" name="q" maxlength="100" placeholder="搜索文章标题、简介或标签" value="' . h($q) . '">';
+    if ($categorySlug !== '') echo '<input type="hidden" name="category" value="' . h($categorySlug) . '">';
+    echo '<button type="submit">搜索</button></form>';
+    echo '<nav class="home-categories" id="categories" aria-label="按分类筛选"><span class="home-category-label">分类</span>';
+    echo '<a class="' . ($categorySlug === '' ? 'selected' : '') . '" href="' . h($filterLink('')) . '"' . ($categorySlug === '' ? ' aria-current="page"' : '') . '>全部</a>';
     foreach ($categories as $cat) {
-        echo '<a class="category-tile ' . ($categorySlug === $cat['slug'] ? 'active' : '') . '" href="/?category=' . rawurlencode($cat['slug']) . '#guides"><span class="cat-icon">' . ($icons[$cat['slug']] ?? '◇') . '</span><span>' . h($cat['name']) . '</span><span class="cat-arrow">↗</span></a>';
+        $active = $categorySlug === $cat['slug'];
+        echo '<a class="' . ($active ? 'selected' : '') . '" href="' . h($filterLink((string)$cat['slug'])) . '"' . ($active ? ' aria-current="page"' : '') . '>' . h($cat['name']) . '</a>';
     }
-    echo '</div></section><section class="section guide-section shell" id="guides"><div class="section-header"><div><div class="kicker">CURATED GUIDES</div><h2>' . ($q !== '' ? '搜索结果' : ($categorySlug !== '' ? '分类指南' : '最新实用指南')) . '</h2><p>清晰的步骤、直观的配图，轻松完成每一项操作。</p></div><span class="count-tag">共 ' . $total . ' 篇指南</span></div>';
+    echo '</nav><section id="guides" class="home-directory"><div class="home-list-header"><h2>' . ($q !== '' ? '搜索结果' : ($categorySlug !== '' ? '分类文章' : '全部文章')) . '</h2><span>共 ' . count($guides) . ' 篇</span></div>';
     if (!$guides) {
-        echo '<div class="empty-state"><div class="empty-icon">⌕</div><h3>暂时没有找到对应指南</h3><p>换个关键词试试，或者浏览全部分类。</p><a class="button primary" href="/">查看全部指南 →</a></div>';
+        echo '<div class="home-list-empty"><p>没有找到符合条件的文章。</p><a href="/">查看全部文章</a></div>';
     } else {
-        echo '<div class="guide-grid">';
-        foreach ($guides as $guide) guide_card($guide);
-        echo '</div>';
-        if ($total > $limit) {
-            $pageCount = (int)ceil($total / $limit);
-            echo '<div class="pagination">';
-            for ($p = max(1, $page - 2); $p <= min($pageCount, $page + 2); $p++) {
-                echo '<a class="' . ($p === $page ? 'current' : '') . '" href="/?' . h(http_build_query(['q' => $q, 'category' => $categorySlug, 'page' => $p])) . '#guides">' . $p . '</a>';
-            }
-            echo '</div>';
+        echo '<ul class="home-article-list">';
+        foreach ($guides as $guide) {
+            $url = '/guide/' . rawurlencode((string)$guide['slug']);
+            $date = substr((string)($guide['published_at'] ?: $guide['created_at']), 0, 10);
+            echo '<li class="home-article-item"><a class="home-article-title" href="' . h($url) . '">' . h($guide['title']) . '</a>';
+            if (trim((string)$guide['summary']) !== '') echo '<p class="home-article-desc">' . h($guide['summary']) . '</p>';
+            echo '<div class="home-article-meta"><span>' . h($guide['category_name'] ?: '未分类') . '</span><time datetime="' . h($date) . '">' . h($date) . '</time></div></li>';
         }
+        echo '</ul>';
     }
-    echo '</section><section class="bottom-banner shell"><div><span class="kicker">MADE SIMPLE</span><h2>复杂的事，<br>也可以很简单。</h2><p>HowHub 持续收录值得收藏的操作指南。</p></div><div class="banner-deco" aria-hidden="true">✳</div></section></main>';
+    echo '</section></main>';
     page_end();
     exit;
 }

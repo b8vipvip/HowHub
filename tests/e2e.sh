@@ -12,6 +12,35 @@ curl -fsS http://127.0.0.1:8099/healthz | grep -q '"ok":true'
 curl -fsS http://127.0.0.1:8099/ | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'
 curl -fsS http://127.0.0.1:8099/guide/tcl-leiniao-kugou-account | grep -q '不要点微信图标绑定'
 curl -fsS 'http://127.0.0.1:8099/?q=%E9%85%B7%E7%8B%97' | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'
+
+# Homepage shows every published article without cover thumbnails or pagination.
+php <<'PHP'
+<?php
+require 'app/bootstrap.php';
+$pdo = database();
+$insert = $pdo->prepare("INSERT OR IGNORE INTO guides (title,slug,summary,status,published_at) VALUES (?,?,?,'published',CURRENT_TIMESTAMP)");
+for ($i = 1; $i <= 14; $i++) {
+    $insert->execute(["首页列表样例 $i", "ci-home-guide-$i", "第 $i 篇文章"]);
+}
+$pdo->prepare("INSERT OR IGNORE INTO guides (title,slug,summary,status) VALUES (?,?,?,'draft')")
+    ->execute(['首页未发布草稿', 'ci-home-draft', '不应出现在首页']);
+PHP
+home=$(curl -fsS http://127.0.0.1:8099/)
+HOME_HTML="$home" php -r '
+$html = getenv("HOME_HTML");
+if (substr_count($html, "class=\"home-article-item\"") < 15) exit(1);
+foreach (["home-article-list", "首页列表样例 14", "TCL雷鸟电视查看和绑定酷狗账号"] as $value) {
+    if (!str_contains($html, $value)) exit(2);
+}
+foreach (["首页未发布草稿", "class=\"guide-grid\"", "class=\"hero-art\"", "class=\"pagination\"", "class=\"guide-cover\""] as $value) {
+    if (str_contains($html, $value)) exit(3);
+}
+';
+curl -fsS 'http://127.0.0.1:8099/?q=%E9%A6%96%E9%A1%B5%E5%88%97%E8%A1%A8%E6%A0%B7%E4%BE%8B' | grep -q '首页列表样例 14'
+if curl -fsS 'http://127.0.0.1:8099/?q=%E9%A6%96%E9%A1%B5%E5%88%97%E8%A1%A8%E6%A0%B7%E4%BE%8B' | grep -q 'TCL雷鸟电视查看和绑定酷狗账号'; then
+    echo "Homepage search filter failed" >&2; exit 1
+fi
+echo 'Homepage list e2e passed: all published / no covers / search / drafts hidden'
 php -r 'require "app/bootstrap.php"; database()->prepare("INSERT OR REPLACE INTO users (username,password_hash) VALUES (?,?)")->execute(["testadmin",password_hash("test-password-12345", PASSWORD_DEFAULT)]);'
 login=$(mktemp)
 jar=$(mktemp)
