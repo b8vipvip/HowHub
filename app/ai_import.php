@@ -256,6 +256,7 @@ function ai_chat_stream(array $payload, callable $onDelta, callable $onStage): s
         throw new RuntimeException('AI 流式连接中断或超时；未修改文章，请查看诊断日志');
     }
     if ($buffer !== '' && !$done) ai_stream_frame($buffer, $onDelta, $text, $done);
+    if (!$done) throw new RuntimeException('AI 流式响应没有正常结束标记，拒绝应用不完整结果');
     if (trim($text) === '') throw new RuntimeException('AI 未产生文本输出，请确认模型支持流式请求');
     diag_event('info', 'ai', 'stream_upstream', 'success', ['duration_ms' => $duration, 'count' => strlen($text), 'upstream_status' => $http]);
     return trim($text);
