@@ -33,6 +33,7 @@ require_once __DIR__ . '/import_walk.php';
 require_once __DIR__ . '/html_import_engine.php';
 require_once __DIR__ . '/import_embedded.php';
 require_once __DIR__ . '/ai_import.php';
+require_once __DIR__ . '/url_import_assets.php';
 require_once __DIR__ . '/url_import_fetch.php';
 require_once __DIR__ . '/url_import_extract.php';
 require_once __DIR__ . '/url_import_video.php';
