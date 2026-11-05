@@ -69,7 +69,7 @@ foreach (['http://127.0.0.1/', 'http://localhost/', 'http://169.254.169.254/late
         url_import_fetch($url);
         throw new LogicException('不安全 URL 未拦截');
     } catch (Throwable $error) {
-        if ($error instanceof LogicException) throw $error;
+        if ($error instanceof LogicException && !($error instanceof InvalidArgumentException)) throw $error;
     }
 }
 echo "HowHub URL import passed: redirects / article / provenance / relative links / video captions / insufficient video / private IP\n";
