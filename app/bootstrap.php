@@ -31,5 +31,6 @@ require_once __DIR__ . '/import_urls.php';
 require_once __DIR__ . '/import_resources.php';
 require_once __DIR__ . '/import_walk.php';
 require_once __DIR__ . '/html_import_engine.php';
+require_once __DIR__ . '/import_embedded.php';
 require_once __DIR__ . '/ai_import.php';
 require_once __DIR__ . '/views.php';
