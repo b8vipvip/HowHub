@@ -60,6 +60,14 @@ catch (InvalidArgumentException $e) { /* expected */ }
 try { import_prepare_source('<p>请阅读<a href="../help">帮助中心</a></p>'); throw new LogicException('缺少链接来源被忽略'); }
 catch (InvalidArgumentException $e) { /* expected */ }
 
+$many = import_prepare_source('<main><article><h2>第一部分</h2><p>设备准备工作</p></article><article><h2>第二部分</h2><p>账号绑定步骤</p></article></main>');
+if (!str_contains($many['content'], '第一部分') || !str_contains($many['content'], '第二部分')) {
+    throw new RuntimeException('多 article 的 HTML 只能提取第一段');
+}
+$protocolRelative = import_prepare_source('<h2>通用图片教程</h2><img src="//cdn.example.com/photo.png">');
+if ($protocolRelative['images'][0]['src'] !== 'https://cdn.example.com/photo.png') {
+    throw new RuntimeException('协议相对图片 URL 未正确处理');
+}
 $dynamic = import_prepare_source('<h2>平台说明</h2><p>正文说明</p><iframe src="https://example.com/embed"></iframe><canvas></canvas>');
 if ($dynamic['unsupported_count'] !== 2 || !$dynamic['warnings']) throw new RuntimeException('动态元素缺失了警示');
 
