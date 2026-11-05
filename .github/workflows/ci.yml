@@ -14,6 +14,8 @@ jobs:
           coverage: none
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Browser script syntax
+        run: node --check public/assets/site.js
       - name: Diagnostics unit tests
         run: php tests/diagnostics.php
       - name: Streaming parser tests
@@ -22,6 +24,8 @@ jobs:
         run: php tests/smoke.php
       - name: Universal HTML import tests
         run: php tests/universal_import.php
+      - name: URL and video import tests
+        run: php tests/url_import.php
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
       - name: Verified update and rollback integration test

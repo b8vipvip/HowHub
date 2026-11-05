@@ -328,13 +328,14 @@ if ($path === '/admin/import/clean' && $method === 'POST') {
 
 // POST-based SSE is intentional: the source HTML and CSRF token must never appear in a GET URL.
 // A failed or cancelled generation never writes a partial article.
-if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/stream'], true) && $method === 'POST') {
+if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/stream', '/admin/import/url/stream'], true) && $method === 'POST') {
     $isOptimize = $path === '/admin/guides/optimize/stream';
-    $action = $isOptimize ? 'optimize_stream' : 'html_import_stream';
+    $isUrlImport = $path === '/admin/import/url/stream';
+    $action = $isOptimize ? 'optimize_stream' : ($isUrlImport ? 'url_import_stream' : 'html_import_stream');
     // Authentication is checked globally above; verify CSRF before opening the stream.
     check_csrf();
-    $windowKey = $isOptimize ? 'ai_optimize_attempts' : 'ai_import_attempts';
-    $limit = $isOptimize ? 6 : 10;
+    $windowKey = $isOptimize ? 'ai_optimize_attempts' : ($isUrlImport ? 'ai_url_attempts' : 'ai_import_attempts');
+    $limit = $isOptimize ? 6 : ($isUrlImport ? 5 : 10);
     $history = array_values(array_filter($_SESSION[$windowKey] ?? [], static fn($t) => is_int($t) && $t > time() - 600));
     if (count($history) >= $limit) {
         http_response_code(429);
@@ -346,7 +347,7 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
     $_SESSION[$windowKey] = $history;
     // Do not lock the admin's PHP session for 10 minutes while the model is running.
     session_write_close();
-    @set_time_limit(720);
+    @set_time_limit($isUrlImport ? 1200 : 720);
     @ini_set('zlib.output_compression', '0');
     while (ob_get_level() > 0) @ob_end_flush();
     header('Content-Type: text/event-stream; charset=utf-8');
@@ -366,6 +367,7 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
     $GLOBALS['howhub_sse_started'] = true;
     $emit('status', ['text'=>'正在检查内容并准备调用 AI…']);
     diag_event('info', 'ai', $action, 'start');
+    if ($isUrlImport) $GLOBALS['howhub_url_import_pending'] = [];
     try {
         $delta = static function (string $chunk) use ($emit): void { $emit('delta', ['text'=>$chunk]); };
         $stage = static function (string $label) use ($emit): void { $emit('status', ['text'=>$label]); };
@@ -374,6 +376,23 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             if (connection_aborted()) exit;
             $emit('status', ['text'=>'正在校验 HTML、图片和链接…']);
             diag_event('info', 'ai', $action, 'success', ['count'=>$result['image_count']]);
+            $emit('complete', ['ok'=>true] + $result);
+        } elseif ($isUrlImport) {
+            $sourceUrl = (string)($_POST['url'] ?? '');
+            $source = url_import_prepare($pdo, $sourceUrl, $stage);
+            if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
+            $emit('status', ['text'=>'已获取来源内容，正在分析可用教程步骤与素材…']);
+            $result = url_import_generate($source, $delta, $stage);
+            if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
+            $emit('status', ['text'=>'AI 生成通过验证，正在转存原网页图片…']);
+            $result = array_merge($result, media_localize_html($pdo, $result['html'], $stage));
+            $result['already_local_count'] = count(array_filter($source['images'],
+                static fn($image) => str_starts_with((string)$image['src'], '/uploads/')));
+            if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
+            diag_event('info','url_import','generate', $result['failed_count'] ? 'partial' : 'success', [
+                'kind'=>$result['source_kind'],'images'=>$result['image_count'],
+                'localized'=>$result['localized_count'],'failed'=>$result['failed_count']]);
+            unset($GLOBALS['howhub_url_import_pending']);
             $emit('complete', ['ok'=>true] + $result);
         } else {
             $source = import_prepare_source((string)($_POST['html'] ?? ''), (string)($_POST['source_url'] ?? ''));
@@ -389,6 +408,7 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             $emit('complete', ['ok'=>true] + $result);
         }
     } catch (Throwable $e) {
+        if ($isUrlImport) url_import_discard_assets($pdo);
         diag_exception('ai', $action, $e);
         $msg = $e instanceof InvalidArgumentException || $e instanceof RuntimeException ? $e->getMessage() : 'AI 运行失败，请检查后台诊断日志';
         $emit('error', ['error'=>$msg]);
@@ -625,7 +645,7 @@ if (($path === '/admin/guides/new' || $path === '/admin/guides/edit') && $method
     page_start($id ? '编辑教程' : '新建教程', '', true);
     echo '<main class="shell admin-main">';
     admin_heading('EDITOR', $id ? '编辑教程' : '新建教程', '用图文结合的方式，清楚地描述每一步操作。', '<a class="button secondary" href="/admin/guides">← 返回列表</a>');
-    echo '<section class="admin-panel ai-import-panel"><div><span class="ai-import-kicker">网页复制 · AI 整理</span><h2>导入网页图文教程</h2><p class="muted">支持粘贴各类网站的完整 HTML、网页片段、博客文章、知识库内容或普通文字。AI 会提取正文并生成 HTML 源代码，并尝试将外链图片下载到本站素材库、替换为 /uploads/ 地址，再填入下方编辑器；不会自动保存或发布教程。缺失真实 src 的懒加载图片将要求重新复制。</p></div><label class="field">原网页 URL（可选；原 HTML 包含相对地址时必填）<input id="ai-source-url" type="url" maxlength="2048" placeholder="https://example.com/articles/guide.html"></label><label class="field">粘贴网页 HTML / 网页代码 / 文章内容<textarea id="ai-source-html" rows="5" maxlength="300000" placeholder="可粘贴任意网站的 HTML 源码、&lt;article&gt; 内容、网页图文、Markdown 或普通文字"></textarea></label><div class="ai-import-actions"><button id="ai-import-generate" class="button primary" type="button">AI 生成 HTML 并填入下方编辑器</button><a href="/admin/ai-settings" class="button secondary">配置 AI 供应商</a><span id="ai-import-status" class="muted" role="status"></span></div><div class="ai-stream-panel" id="ai-import-live" hidden><div class="ai-stream-head"><strong>AI 导入进度</strong><span class="ai-stream-elapsed">0 秒</span><button type="button" class="button secondary ai-stream-cancel">取消本次调用</button></div><div class="ai-stream-loading"></div><p class="ai-stream-stage" role="status">准备中…</p><p class="ai-stream-count">已收到 0 字符</p><pre class="ai-stream-output" aria-label="AI 实时生成内容"></pre></div><p class="field-help">导入时会将素材内容提交到你配置的 AI 服务；不会发送管理员密码。AI 生成的 HTML 将替换当前编辑器内的未保存正文，支持撤销；不会自动保存或发布教程。可用的外链图片会自动下载并登记到本站素材库；如有失败会显示数量和原因，并暂时保留原外链。</p></section>';
+    echo '<section class="admin-panel ai-import-panel"><div><span class="ai-import-kicker">网页复制 · AI 整理</span><h2>导入网页图文教程</h2><p class="muted">支持粘贴各类网站的完整 HTML、网页片段、博客文章、知识库内容或普通文字。AI 会提取正文并生成 HTML 源代码，并尝试将外链图片下载到本站素材库、替换为 /uploads/ 地址，再填入下方编辑器；不会自动保存或发布教程。缺失真实 src 的懒加载图片将要求重新复制。</p></div><div class="url-import-panel"><label class="field">只粘贴一个网页、文档或视频链接<input id="url-import-input" type="url" maxlength="2048" placeholder="https://example.com/tutorial-or-video" autocomplete="off"></label><div class="ai-import-actions"><button id="url-import-generate" class="button primary" type="button">一键获取链接 · 转存素材 · AI 导入</button><span id="url-import-status" class="muted" role="status"></span></div><p class="field-help">支持公开图文网页、PDF、DOCX、PPTX、XLSX、文本、图片、MP4/WebM 与部分带字幕的视频平台。需要登录或禁止抓取的页面无法保证获取。视频依赖公开字幕或 FFmpeg 抽帧 + 支持图像理解的 AI；不虚构音频内容。生成后只填入编辑器，需自行预览保存。</p></div><hr><label class="field">原网页 URL（可选；原 HTML 包含相对地址时必填）<input id="ai-source-url" type="url" maxlength="2048" placeholder="https://example.com/articles/guide.html"></label><label class="field">粘贴网页 HTML / 网页代码 / 文章内容<textarea id="ai-source-html" rows="5" maxlength="300000" placeholder="可粘贴任意网站的 HTML 源码、&lt;article&gt; 内容、网页图文、Markdown 或普通文字"></textarea></label><div class="ai-import-actions"><button id="ai-import-generate" class="button primary" type="button">AI 生成 HTML 并填入下方编辑器</button><a href="/admin/ai-settings" class="button secondary">配置 AI 供应商</a><span id="ai-import-status" class="muted" role="status"></span></div><div class="ai-stream-panel" id="ai-import-live" hidden><div class="ai-stream-head"><strong>AI 导入进度</strong><span class="ai-stream-elapsed">0 秒</span><button type="button" class="button secondary ai-stream-cancel">取消本次调用</button></div><div class="ai-stream-loading"></div><p class="ai-stream-stage" role="status">准备中…</p><p class="ai-stream-count">已收到 0 字符</p><pre class="ai-stream-output" aria-label="AI 实时生成内容"></pre></div><p class="field-help">导入时会将素材内容提交到你配置的 AI 服务；不会发送管理员密码。AI 生成的 HTML 将替换当前编辑器内的未保存正文，支持撤销；不会自动保存或发布教程。可用的外链图片会自动下载并登记到本站素材库；如有失败会显示数量和原因，并暂时保留原外链。</p></section>';
     echo '<form id="guide-form" method="post" action="/admin/guides/save" class="editor-layout">' . csrf_input() . '<input type="hidden" name="id" value="' . (int)$guide['id'] . '"><div class="editor-main admin-panel"><label class="field">教程标题<input name="title" required maxlength="180" placeholder="例如：TCL雷鸟电视查看和绑定酷狗账号" value="' . h($guide['title']) . '"></label><label class="field">简短介绍<textarea name="summary" rows="3" maxlength="450" placeholder="一句话告诉读者，这篇教程可以解决什么问题">' . h($guide['summary']) . '</textarea></label><div class="field"><span class="field-title">教程正文</span><p class="field-help">支持直接粘贴其他网页复制的图文（保留标题、段落、列表、表格与图片链接）。图片可以替换、删除、调整大小与顺序，也可以使用素材库。</p><div class="editor-toolbar" role="toolbar" aria-label="编辑器工具栏"><button type="button" data-command="formatBlock" data-value="h2">标题 H2</button><button type="button" data-command="formatBlock" data-value="h3">小标题 H3</button><button type="button" data-command="bold"><b>B</b></button><button type="button" data-command="italic"><i>I</i></button><button type="button" data-command="insertUnorderedList">• 列表</button><button type="button" data-command="insertOrderedList">1. 列表</button><button type="button" data-action="link">链接</button><button type="button" data-action="image">上传图片</button><button type="button" data-action="library">素材库</button><button type="button" data-action="replace-image">替换选中图片</button><button type="button" data-action="remove-image">删除选中图片</button><button type="button" data-action="image-alt">图片描述</button><button type="button" data-action="image-size">图片大小</button><button type="button" data-action="image-up">图片上移</button><button type="button" data-action="image-down">图片下移</button><button type="button" data-action="remote-image">图片网址</button><button type="button" data-command="removeFormat">清除格式</button><span class="editor-toolbar-divider"></span><button type="button" id="editor-toggle-source" class="editor-mode-button" aria-pressed="false">&lt;/&gt; HTML 源代码</button><button type="button" id="editor-preview-button" class="editor-mode-button">预览当前内容</button><button type="button" id="editor-ai-optimize" class="editor-ai-button">✦ AI 优化</button><button type="button" id="editor-ai-undo" class="editor-mode-button" hidden>撤销 AI 优化</button></div><div class="editor-area article-content" id="rich-editor" contenteditable="true" data-placeholder="从这里开始写教程，可以直接粘贴文本或图片…">' . sanitize_content($guide['body_html']) . '</div><textarea id="source-editor" class="editor-source" spellcheck="false" aria-label="教程 HTML 源代码" placeholder="可直接编辑 HTML 源代码" hidden></textarea><p id="source-editor-help" class="field-help" hidden>HTML 源码可直接修改，切回可视化或预览时会执行安全过滤。AI 优化结果会自动填入这里，保存文章前可检查修改。</p><textarea name="body_html" id="body-html" hidden></textarea><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="image-picker" hidden><div class="editor-message" id="editor-message" aria-live="polite"></div><div class="ai-stream-panel" id="ai-optimize-live" hidden><div class="ai-stream-head"><strong>AI 优化进度</strong><span class="ai-stream-elapsed">0 秒</span><button type="button" class="button secondary ai-stream-cancel">取消本次调用</button></div><div class="ai-stream-loading"></div><p class="ai-stream-stage" role="status">准备中…</p><p class="ai-stream-count">已收到 0 字符</p><pre class="ai-stream-output" aria-label="AI 实时生成内容"></pre></div><dialog id="editor-preview-dialog" class="editor-preview-dialog"><div class="dialog-header"><div><h3>未保存的内容预览</h3><p class="muted">只预览当前编辑器，不会修改已发布文章</p></div><button type="button" id="editor-preview-close" class="button secondary">关闭预览</button></div><iframe id="editor-preview-frame" sandbox="" referrerpolicy="no-referrer" title="当前文章预览"></iframe></dialog><dialog id="media-dialog" class="media-dialog"><div class="dialog-header"><h3>从素材库中选择</h3><button type="button" id="media-dialog-close" class="button secondary">关闭</button></div><div class="media-dialog-tools"><button type="button" data-media-kind="all">全部</button><button type="button" data-media-kind="image">图片</button><button type="button" data-media-kind="file">文档</button><label class="button secondary media-upload-label">＋ 上传<input id="dialog-upload" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip" multiple hidden></label></div><div id="media-dialog-list" class="media-dialog-list">正在加载…</div></dialog></div></div><aside class="editor-side"><div class="admin-panel editor-side-panel"><h3>发布设置</h3><label class="field">状态<select name="status"><option value="draft" ' . ($guide['status'] === 'draft' ? 'selected' : '') . '>草稿（不公开）</option><option value="published" ' . ($guide['status'] === 'published' ? 'selected' : '') . '>正式发布</option></select></label><label class="field">内容分类<select name="category_id"><option value="">未分类</option>';
     foreach ($categories as $cat) echo '<option value="' . (int)$cat['id'] . '" ' . ((int)$guide['category_id'] === (int)$cat['id'] ? 'selected' : '') . '>' . h($cat['name']) . '</option>';
     echo '</select></label><label class="check-field"><input type="checkbox" name="featured" value="1" ' . ($guide['featured'] ? 'checked' : '') . '> 在列表中优先展示</label><button class="button primary full" type="submit">保存教程 →</button>';
