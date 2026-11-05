@@ -33,7 +33,10 @@ function media_remote_target(string $url): array
         throw new RuntimeException('图片网址格式不正确');
     }
     $scheme = strtolower($parts['scheme']);
-    $host = strtolower(rtrim($parts['host'], '.'));
+    // A trailing dot changes cURL's DNS cache lookup key and could bypass
+    // CURLOPT_RESOLVE pinning. Reject instead of normalizing just this field.
+    if (str_ends_with($parts['host'], '.')) throw new RuntimeException('图片域名格式不正确');
+    $host = strtolower($parts['host']);
     if (!in_array($scheme, ['https', 'http'], true) ||
         !preg_match('/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/D', $host) ||
         !str_contains($host, '.') || str_contains($host, '..') ||
