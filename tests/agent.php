@@ -82,6 +82,12 @@ try {
         agent_enqueue($pdo,$source,$items[0]['url'],$items[0]['title'])) {
         throw new RuntimeException('feed discovery cross-domain restriction or dedupe broken');
     }
+    $index=agent_feed_items('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>'.$domain.'/sitemap-posts.xml</loc></sitemap><sitemap><loc>https://outside.example.com/other.xml</loc></sitemap></sitemapindex>',
+        $domain.'/sitemap.xml',$domain);
+    if (count($index)!==1 || $index[0]['kind']!=='feed' ||
+        $index[0]['url']!==$domain.'/sitemap-posts.xml') {
+        throw new RuntimeException('Nested sitemap index parsing not restricted to same-domain');
+    }
     $rich='<article><h2>网络设置方法</h2><p>按照提示进入路由器控制面板完成设置。</p>'.
         '<table><tr><th colspan="2">配置对照</th></tr><tr><td>端口</td><td>8080</td></tr></table>'.
         '<math><semantics><mi>x</mi><annotation encoding="application/x-tex">x^2 + y^2</annotation></semantics></math>'.
