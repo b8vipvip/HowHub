@@ -60,9 +60,12 @@ function import_select_body(DOMDocument $doc): DOMNode
               '//main'] as $selector) {
         $matches = $xpath->query($selector);
         if ($matches === false) continue;
+        $qualified = [];
         foreach ($matches as $candidate) {
-            if ($candidate instanceof DOMElement && mb_strlen(trim($candidate->textContent)) >= 16) return $candidate;
+            if ($candidate instanceof DOMElement && mb_strlen(trim($candidate->textContent)) >= 16) $qualified[] = $candidate;
         }
+        // Prefer a shared main region over an arbitrary first article card.
+        if (count($qualified) === 1) return $qualified[0];
     }
     return $body;
 }
