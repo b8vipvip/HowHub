@@ -28,6 +28,24 @@ try {
     agent_add_source($pdo,'https://docs.example.org','https://evil.example.com/feed.xml','','','summary');
     throw new LogicException('accepted offsite discovery feed');
 } catch (InvalidArgumentException $e) { /* expected */ }
+foreach ([
+    'https://docs.example.org/open/../admin',
+    'https://docs.example.org/public/%2e%2e/admin',
+    'https://docs.example.org/public/%2fadmin',
+] as $ambiguous) {
+    try {
+        agent_normalize_url($ambiguous);
+        throw new LogicException('Ambiguous robots path was accepted');
+    } catch (InvalidArgumentException $e) { /* expected */ }
+}
+try {
+    url_import_fetch('https://docs.example.org/guide', 10000,
+        static fn(string $url):array=>['status'=>302,'body'=>'','headers'=>['location'=>'/members/private']],
+        [],AGENT_UA,true);
+    throw new LogicException('Autonomous redirect bypassed target robots check');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(),'robots')) throw $e;
+}
 $domain='https://docs-agent-test.example.org';
 $id=agent_add_source($pdo,$domain,$domain.'/feed.xml','信息技术','English','summary');
 try {
@@ -65,14 +83,14 @@ try {
         throw new RuntimeException('feed discovery cross-domain restriction or dedupe broken');
     }
     $rich='<article><h2>网络设置方法</h2><p>按照提示进入路由器控制面板完成设置。</p>'.
-        '<table><tr><th>项目</th><th>数值</th></tr><tr><td>端口</td><td>8080</td></tr></table>'.
+        '<table><tr><th colspan="2">配置对照</th></tr><tr><td>端口</td><td>8080</td></tr></table>'.
         '<math><semantics><mi>x</mi><annotation encoding="application/x-tex">x^2 + y^2</annotation></semantics></math>'.
         '<pre class="mermaid">graph TD; A-->B</pre><svg><circle cx="3" cy="3"/></svg></article>';
     $features=agent_source_features($rich);
     $formatted=agent_structured_html($features);
     if ($features['counts']['tables']!==1 || $features['counts']['formulas']<1 ||
         $features['counts']['diagrams']!==1 || !$features['warnings'] ||
-        !str_contains($formatted,'<table>') || !str_contains($formatted,'x^2 + y^2') ||
+        !str_contains($formatted,'<table>') || !str_contains($formatted,'colspan="2"') || !str_contains($formatted,'x^2 + y^2') ||
         !str_contains($formatted,'graph TD')) {
         throw new RuntimeException('table/formula/diagram safe structure preservation failed');
     }
