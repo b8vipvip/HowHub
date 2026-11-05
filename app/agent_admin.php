@@ -93,10 +93,13 @@ function agent_admin_page(PDO $pdo): void
     echo '<section class="admin-panel"><h2>来源与访问预算</h2><div class="responsive-table"><table><thead><tr><th>站点 / 类别</th><th>模式</th><th>限制</th><th>状态</th><th>操作</th></tr></thead><tbody>';
     foreach ($sources as $s) {
         $id=(int)$s['id'];
+        $usedQuery=$pdo->prepare('SELECT COUNT(*) FROM agent_requests WHERE source_id=? AND requested_at>?');
+        $usedQuery->execute([$id,time()-86400]);
+        $used=(int)$usedQuery->fetchColumn();
         echo '<tr><td><strong>'.h($s['origin']).'</strong><br><small>'.h($s['industry']).' · '.h($s['region']).'</small><br><small>'.h($s['feed_url'] ?: 'Sitemap 默认入口').'</small></td>';
         echo '<td>'.($s['rights_mode']==='licensed'?'已记录转载许可':'仅原创摘要（不复制媒体）').'</td>';
-        echo '<td>间隔 '.(int)$s['min_interval'].' 秒<br>24 小时 '.(int)$s['daily_limit'].' 次</td>';
-        echo '<td>'.($s['enabled']?'启用':'暂停').'<br><small>'.h($s['last_message']).'</small></td>';
+        echo '<td>间隔 '.(int)$s['min_interval'].' 秒<br>24 小时已使用 '.$used.' / '.(int)$s['daily_limit'].' 次<br><small>下次最早：'.h(date('Y-m-d H:i',(int)$s['next_fetch'])).'</small></td>';
+        echo '<td>'.($s['enabled']?'启用':'暂停').' / robots: '.h($s['robots_state']).'<br><small>'.h($s['last_message']).'</small></td>';
         echo '<td><form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="enable"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="enabled" value="'.($s['enabled']?'0':'1').'"><button type="submit" class="button secondary">'.($s['enabled']?'暂停':'启用').'</button></form></td></tr>';
         echo '<tr><td colspan="5"><form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().'<input type="hidden" name="action" value="limits"><input type="hidden" name="id" value="'.$id.'"><label>间隔（秒）<input type="number" name="interval" min="300" max="86400" value="'.(int)$s['min_interval'].'"></label><label>24h 请求上限<input type="number" name="daily" min="1" max="20" value="'.(int)$s['daily_limit'].'"></label><button class="button secondary" type="submit">保存限额</button></form>';
         echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().'<input type="hidden" name="action" value="rights"><input type="hidden" name="id" value="'.$id.'"><label>素材许可<select name="mode"><option value="summary">原创摘要（默认）</option><option value="licensed" '.($s['rights_mode']==='licensed'?'selected':'').'>已取得转载授权</option></select></label><label>授权证据 / 许可链接<input name="evidence" maxlength="1000" value="'.h($s['rights_evidence']).'" placeholder="完整许可范围或书面授权编号"></label><button class="button secondary" type="submit">更新许可</button></form></td></tr>';
@@ -115,7 +118,11 @@ function agent_admin_page(PDO $pdo): void
         $q->execute([$selected]);
         $c=$q->fetch();
         if ($c) {
-            echo '<section class="admin-panel"><h2>候选详情 #'.(int)$c['id'].'</h2><p class="muted">来源：'.h($c['url']).'</p><p>证据：'.h($c['evidence']).'</p><p>格式：'.h($c['format_notes']).'</p><div class="article-content">'.sanitize_content($c['body_html']).'</div>';
+            $mediaStatus=$pdo->prepare('SELECT status,COUNT(*) AS n FROM agent_media WHERE candidate_id=? GROUP BY status');
+            $mediaStatus->execute([$selected]);
+            $mediaCounts=[];
+            foreach ($mediaStatus->fetchAll() as $row) $mediaCounts[$row['status']]=(int)$row['n'];
+            echo '<section class="admin-panel"><h2>候选详情 #'.(int)$c['id'].'</h2><p class="muted">来源：'.h($c['url']).'</p><p>授权图片转存：待处理 '.(int)($mediaCounts['queued']??0).' / 成功 '.(int)($mediaCounts['done']??0).' / 跳过 '.(int)($mediaCounts['skipped']??0).'</p><p>证据：'.h($c['evidence']).'</p><p>格式：'.h($c['format_notes']).'</p><div class="article-content">'.sanitize_content($c['body_html']).'</div>';
             if ($c['status']==='review') {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="'.(int)$c['id'].'"><button class="button primary" type="submit">人工确认后创建未发布草稿</button></form>';
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="'.(int)$c['id'].'"><button class="button secondary" type="submit">拒绝候选</button></form>';
