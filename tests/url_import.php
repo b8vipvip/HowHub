@@ -42,7 +42,7 @@ $videoPage = <<<'HTML'
 <body><article><h2>连接教程</h2><p>介绍电视的连接步骤和操作方法。</p>
 <video><track kind="captions" src="/subs/guide.vtt" srclang="zh"></video></article></body></html>
 HTML;
-$captions = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n第一步打开电视设置页面，进入网络设置选项。\n\n00:00:04.000 --> 00:00:06.000\n第二步按下确认并等待连接提示。\n\n00:00:08.000 --> 00:00:10.000\n第三步检查状态并返回主页，确认连接成功。";
+$captions = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n第一步打开电视设置页面，进入网络设置选项。\n\n00:00:04.000 --> 00:00:06.000\n第二步按下确认并等待连接提示。\n\n00:00:08.000 --> 00:00:10.000\n第三步检查状态并返回主页，确认连接成功。还应检查设备显示的网络状态，确认已经正常连接。";
 $videoFixture = static function (string $url) use ($videoPage, $captions): array {
     if (str_ends_with($url, '/video.html')) return ['status'=>200,'body'=>$videoPage,'headers'=>['content-type'=>'text/html']];
     if (str_ends_with($url, '/subs/guide.vtt')) return ['status'=>200,'body'=>$captions,'headers'=>['content-type'=>'text/vtt']];
