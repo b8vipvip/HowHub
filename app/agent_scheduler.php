@@ -65,8 +65,13 @@ function agent_approve_candidate(PDO $pdo, int $id): int
         if (!$c || $c['status']!=='review' || $c['guide_id']!==null) {
             throw new RuntimeException('该候选不是可创建草稿的待审核内容');
         }
-        if (!agent_same_origin($c['url'],(string)parse_url($c['url'],PHP_URL_SCHEME).'://'.(string)parse_url($c['url'],PHP_URL_HOST))) {
-            throw new RuntimeException('来源 URL 不合法');
+        $sourceOriginStmt=$pdo->prepare('SELECT origin FROM agent_sources WHERE id=?');
+        $sourceOriginStmt->execute([$c['source_id']]);
+        $sourceOrigin=(string)$sourceOriginStmt->fetchColumn();
+        if (!agent_same_origin($c['url'],$sourceOrigin)) throw new RuntimeException('来源 URL 不符合该站点授权范围');
+        $format=json_decode((string)$c['format_notes'],true) ?: [];
+        if (!empty($format['licensed']) && ($c['rights_mode']!=='licensed' || trim($c['rights_evidence'])==='')) {
+            throw new RuntimeException('原来源转载许可已撤销，不能创建包含原始结构或媒体的草稿');
         }
         if (mb_strlen(strip_tags($c['body_html']))<50) throw new RuntimeException('候选正文内容不足');
         $stmt=$pdo->prepare("SELECT COUNT(*) FROM agent_media WHERE candidate_id=? AND status='queued'");
