@@ -357,7 +357,8 @@ function import_prepare_source(string $raw): array
                 $unloadedImages++;
                 return;
             }
-            if (count($images) < 60) {
+            if (count($images) >= 60) throw new InvalidArgumentException('一次最多导入 60 张图片，请分段操作');
+            {
                 $marker = '[[IMAGE_' . (count($images) + 1) . ']]';
                 $images[] = ['marker' => $marker, 'src' => $src, 'alt' => mb_substr($node->getAttribute('alt'), 0, 160)];
                 $output .= "\n" . $marker . "\n";
@@ -392,7 +393,6 @@ function import_prepare_source(string $raw): array
     if ($unloadedImages > 0) {
         throw new InvalidArgumentException('原网页有 ' . $unloadedImages . ' 张图片尚未加载、缺少真实 src 地址。请在源网页滚动到底并等待全部图片显示，再复制已加载的 DOM HTML；此次未调用 AI，也没有修改编辑器。');
     }
-    if (count($images) >= 60) throw new InvalidArgumentException('一次最多导入 60 张图片，请分段操作');
     if (mb_strlen($output) < 4) throw new InvalidArgumentException('网页内容不足，无法识别教程');
     return ['content' => mb_substr($output, 0, 90000), 'images' => $images];
 }
