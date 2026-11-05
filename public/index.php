@@ -189,6 +189,25 @@ if ($path === '/admin/login') {
 
 require_admin();
 
+if ($path === '/admin/agent' && $method === 'GET') {
+    agent_admin_page($pdo);
+    exit;
+}
+
+if ($path === '/admin/agent/action' && $method === 'POST') {
+    check_csrf();
+    try {
+        $message=agent_admin_action($pdo,$_POST);
+        flash($message);
+    } catch (Throwable $e) {
+        diag_exception('discovery_agent','admin_action',$e);
+        $message=$e instanceof InvalidArgumentException || $e instanceof RuntimeException ?
+            $e->getMessage() : 'Agent 设置失败，请检查诊断日志';
+        flash($message,'error');
+    }
+    redirect_to('/admin/agent');
+}
+
 if ($path === '/admin/diagnostics/client' && $method === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
