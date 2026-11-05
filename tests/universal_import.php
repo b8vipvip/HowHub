@@ -39,8 +39,8 @@ if (count($source['links']) !== 2 ||
 if (str_contains($source['content'], '导航不要') || str_contains($source['content'], '页脚不要')) {
     throw new RuntimeException('提取正文混入导航或页脚');
 }
-$markers = implode('', array_map(static fn($i) => '<p>' . $i['marker'] . '</p>', $source['images'])) .
-           implode('', array_map(static fn($link) => '<p>' . $link['marker'] . '</p>', $source['links']));
+preg_match_all('/\[\[(?:IMAGE|LINK)_\d+\]\]/', $source['content'], $resourceTokens);
+$markers = implode('', array_map(static fn($marker) => '<p>' . $marker . '</p>', $resourceTokens[0]));
 $html = import_safe_html_output('<h2>整理的步骤</h2>' . $markers . '<a href="https://attacker.invalid">伪造外链</a>', $source);
 if (substr_count($html, '<img ') !== 5 || substr_count($html, '<a href=') !== 3 ||
     str_contains($html, 'attacker.invalid') ||
