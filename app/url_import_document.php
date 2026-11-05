@@ -4,13 +4,13 @@ declare(strict_types=1);
 /** Store an imported file as a private downloadable attachment, not public executable content. */
 function url_import_archive(PDO $pdo, string $bytes, string $ext, string $label): string
 {
-    $formats = ['pdf'=>'%PDF-','mp4'=>'ftyp','webm'=>"\x1A\x45\xDF\xA3",
+    $formats = ['pdf'=>'%PDF-','mp4'=>'ftyp','mov'=>'ftyp','webm'=>"\x1A\x45\xDF\xA3",
                 'docx'=>"PK\x03\x04",'pptx'=>"PK\x03\x04",'xlsx'=>"PK\x03\x04"];
     if (!isset($formats[$ext]) || strlen($bytes) < 16 || strlen($bytes) > 30 * 1024 * 1024) {
         throw new RuntimeException('原文件大小或格式不允许转存');
     }
     $signature = $formats[$ext];
-    $ok = $ext === 'mp4' ? str_contains(substr($bytes, 0, 16), $signature) :
+    $ok = in_array($ext, ['mp4','mov'], true) ? str_contains(substr($bytes, 0, 16), $signature) :
         str_starts_with($bytes, $signature);
     if (!$ok) throw new RuntimeException('原文件格式签名无效');
     $subdir = date('Y/m');
@@ -70,7 +70,7 @@ function url_import_document_text(string $bytes, string $extension): string
             if ($zip !== null && $zip->open($file) !== true) throw new RuntimeException('无法读取 Office ZIP 内容');
             foreach ($entries as $entry) {
                 if ($zip !== null) {
-                    $raw = $zip->getFromName($entry);
+                    $raw = $zip->getFromName($entry, 500001);
                 } else {
                     try { $raw = url_import_process([url_import_bin('unzip'),'-p',$file,$entry], 5, 500000); }
                     catch (Throwable $e) { continue; }
