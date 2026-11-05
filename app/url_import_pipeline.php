@@ -94,12 +94,12 @@ function url_import_prepare(PDO $pdo, string $url, ?callable $onStage = null, ?c
     } elseif (str_starts_with($mime, 'video/')) {
         $sourceKind = 'video_file';
         if ($onStage) $onStage('正在抽取视频关键画面，交给 AI 识别可见操作…');
-        $suffix = $mime === 'video/webm' ? '.webm' : '.mp4';
+        $suffix = match ($mime) { 'video/webm'=>'.webm', 'video/quicktime'=>'.mov', default=>'.mp4' };
         $frames = url_import_frames($data, $suffix);
         $notes = url_import_vision_notes($frames);
         $media = [];
         foreach ($frames as $jpeg) $media[] = media_store_import_bytes($pdo, $jpeg);
-        $saved = url_import_archive($pdo, $data, $suffix === '.webm' ? 'webm' : 'mp4', '原始视频');
+        $saved = url_import_archive($pdo, $data, ltrim($suffix, '.'), '原始视频');
         $html = url_import_plain_article('视频画面分析', $notes, $saved, '下载转存的视频文件');
         foreach ($media as $i=>$src) $html = str_replace('</article>', '<p><img src="' . h($src) . '" alt="关键画面 ' . ($i+1) . '"></p></article>', $html);
         $warnings[] = '该视频只分析抽取画面，不包含音轨语音转写，不能补充画面之外的教学信息';
