@@ -376,8 +376,9 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             diag_event('info', 'ai', $action, 'success', ['count'=>$result['image_count']]);
             $emit('complete', ['ok'=>true] + $result);
         } else {
-            $source = import_prepare_source((string)($_POST['html'] ?? ''));
-            $emit('status', ['text'=>'已识别 '.count($source['images']).' 张配图，等待 AI 生成…']);
+            $source = import_prepare_source((string)($_POST['html'] ?? ''), (string)($_POST['source_url'] ?? ''));
+            $source = import_prepare_embedded($pdo, $source);
+            $emit('status', ['text'=>'已识别 '.count($source['images']).' 张配图、'.count($source['links']).' 个链接，等待 AI 生成…']);
             $result = ai_generate_import_html($source, $delta, $stage);
             if (connection_aborted()) exit;
             $emit('status', ['text'=>'HTML 已生成，正在将外部图片转存到本站素材库…']);
@@ -432,7 +433,8 @@ if ($path === '/admin/import/generate' && $method === 'POST') {
         $attempts[] = time();
         $_SESSION['ai_import_attempts'] = $attempts;
         session_write_close();
-        $source = import_prepare_source((string)($_POST['html'] ?? ''));
+        $source = import_prepare_source((string)($_POST['html'] ?? ''), (string)($_POST['source_url'] ?? ''));
+        $source = import_prepare_embedded($pdo, $source);
         $result = ai_generate_import_html($source);
         $result = array_merge($result, media_localize_html($pdo, $result['html']));
         diag_event('info', 'ai', 'html_import', 'success', ['count' => $result['image_count'], 'localized' => $result['localized_count'], 'failed' => $result['failed_count']]);
