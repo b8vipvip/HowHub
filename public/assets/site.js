@@ -627,6 +627,56 @@
       }
     });
   }
+  const urlImportButton = document.getElementById('url-import-generate');
+  const urlImportInput = document.getElementById('url-import-input');
+  const urlImportStatus = document.getElementById('url-import-status');
+  if (urlImportButton && urlImportInput && urlImportStatus) {
+    urlImportButton.addEventListener('click', async () => {
+      const sourceUrl = urlImportInput.value.trim();
+      if (!/^https?:\/\//i.test(sourceUrl)) {
+        urlImportStatus.textContent = '请填写完整的 http:// 或 https:// 来源链接。';
+        urlImportInput.focus();
+        return;
+      }
+      const original = currentHtml();
+      if (original.trim() && !window.confirm('AI 链接导入将替换当前未保存的文章正文（支持撤销，不会自动保存或发布），是否继续？')) return;
+      const payload = new FormData();
+      payload.append('csrf_token', token);
+      payload.append('url', sourceUrl);
+      urlImportButton.disabled = true;
+      if (importButton) importButton.disabled = true;
+      urlImportStatus.textContent = '正在获取链接并分析内容类型、转存可用资源…';
+      try {
+        const result = await readAIStream('/admin/import/url/stream', payload, document.getElementById('ai-import-live'));
+        if (currentHtml() !== original) throw new Error('生成期间正文已被修改，为避免覆盖编辑器内容，结果未应用');
+        previousAIHtml = original;
+        sourceEditor.value = result.html;
+        setSourceMode(true);
+        undoOptimizeButton.textContent = '撤销链接导入';
+        undoOptimizeButton.hidden = false;
+        const titleInput = form.querySelector('input[name="title"]');
+        if (titleInput && !titleInput.value.trim() && result.suggested_title) {
+          titleInput.value = String(result.suggested_title).slice(0, 180);
+        }
+        const failed = Number(result.failed_count || 0);
+        const localized = Number(result.localized_count || 0);
+        const warnings = [...(result.import_warnings || []), ...(result.transfer_errors || [])].join('；');
+        urlImportStatus.textContent =
+          `已导入 ${result.source_kind || 'webpage'}：${result.image_count || 0} 张图片、${result.link_count || 0} 个链接，转存成功 ${localized} 张、失败 ${failed} 张。` +
+          (warnings ? ' 提示：' + warnings : '') +
+          ' 仅填入编辑器，尚未保存。';
+        messageText(failed ? '链接导入完成，但部分图片未转存，请检查警告后手动保存。' : '链接分析与导入完成，请预览并自行保存。', failed > 0);
+        sourceEditor.scrollIntoView({behavior:'smooth', block:'center'});
+        sourceEditor.focus();
+      } catch (err) {
+        reportClientFailure('ai','url_import_ui');
+        urlImportStatus.textContent = '链接导入失败：' + (err.message || '网络错误') + '；编辑器未改变，可修正链接后重试。';
+      } finally {
+        urlImportButton.disabled = false;
+        if (importButton) importButton.disabled = false;
+      }
+    });
+  }
   cover.addEventListener('change', () => {
     if (/^(https?:\/\/|\/uploads\/)/.test(cover.value)) setCover(cover.value);
     else preview.replaceChildren();
