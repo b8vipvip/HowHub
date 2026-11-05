@@ -17,16 +17,16 @@ function agent_feed_items(string $xml, string $feedUrl, string $origin): array
     }
     if (!$ok) throw new RuntimeException('来源 RSS/Sitemap XML 不是有效格式');
     $root = strtolower((string)($doc->documentElement?->localName ?? ''));
-    if (!in_array($root,['rss','feed','rdf','urlset'],true)) {
+    if (!in_array($root,['rss','feed','rdf','urlset','sitemapindex'],true)) {
         throw new RuntimeException('发现入口只允许 RSS、Atom 或 Sitemap URL 集合');
     }
     $xpath = new DOMXPath($doc);
     $items = [];
-    if ($root === 'urlset') {
-        $nodes = $xpath->query('//*[local-name()="url"]');
+    if ($root === 'urlset' || $root === 'sitemapindex') {
+        $nodes = $xpath->query($root === 'urlset' ? '//*[local-name()="url"]' : '//*[local-name()="sitemap"]');
         foreach ($nodes ?: [] as $item) {
             $loc = $xpath->query('./*[local-name()="loc"]',$item)?->item(0)?->textContent ?? '';
-            $items[] = ['url'=>trim($loc),'title'=>''];
+            $items[] = ['url'=>trim($loc),'title'=>'','kind'=>$root === 'sitemapindex' ? 'feed' : 'page'];
             if (count($items)>=40) break;
         }
     } elseif ($root === 'feed') {
@@ -55,14 +55,15 @@ function agent_feed_items(string $xml, string $feedUrl, string $origin): array
     foreach ($items as $item) {
         $link = import_resolve_url($item['url'],$feedUrl);
         if ($link === '' || !agent_same_origin($link,$origin)) continue;
-        $clean[] = ['url'=>$link,'title'=>mb_substr(trim($item['title']),0,180)];
+        $clean[] = ['url'=>$link,'title'=>mb_substr(trim($item['title']),0,180),
+            'kind'=>(string)($item['kind'] ?? 'page')];
     }
     return $clean;
 }
 
-function agent_discover(PDO $pdo, array $source, ?callable $fixture = null): array
+function agent_discover(PDO $pdo, array $source, ?callable $fixture = null, string $nestedFeed = ''): array
 {
-    $url = $source['feed_url'] ?: $source['origin'].'/sitemap.xml';
+    $url = $nestedFeed ?: ($source['feed_url'] ?: $source['origin'].'/sitemap.xml');
     if (!agent_same_origin($url,$source['origin'])) throw new RuntimeException('来源发现入口跨域');
     $gate = agent_robots_gate($pdo,$source,$url,$fixture);
     if (!$gate['ready']) return ['status'=>'robots','message'=>$gate['message']];
@@ -74,12 +75,21 @@ function agent_discover(PDO $pdo, array $source, ?callable $fixture = null): arr
         if (!agent_same_origin($response['url'],$source['origin'])) throw new RuntimeException('发现入口被重定向到其他网站');
         $items = agent_feed_items($response['body'],$response['url'],$source['origin']);
         $added = 0;
+        $nested = 0;
         foreach ($items as $item) {
-            if (agent_enqueue($pdo,$source,$item['url'],$item['title'])) $added++;
-            if ($added >= 20) break;
+            if ($item['kind'] === 'feed') {
+                $filePath = strtolower((string)parse_url($item['url'],PHP_URL_PATH));
+                if (!str_ends_with($filePath,'.xml') && !str_ends_with($filePath,'.xml.gz')) continue;
+                // Compressed XML is unsupported: never try unlimited decompression.
+                if (str_ends_with($filePath,'.gz')) continue;
+                $ins=$pdo->prepare('INSERT OR IGNORE INTO agent_feeds(source_id,url,url_hash) VALUES (?,?,?)');
+                $ins->execute([$source['id'],$item['url'],hash('sha256',$item['url'])]);
+                $nested += $ins->rowCount();
+            } elseif (agent_enqueue($pdo,$source,$item['url'],$item['title'])) $added++;
+            if ($added + $nested >= 20) break;
         }
-        agent_event($pdo,'feed','success','发现 '.count($items).' 条候选，新增 '.$added,(int)$source['id']);
-        return ['status'=>'discovered','added'=>$added,'total'=>count($items)];
+        agent_event($pdo,'feed','success','新增网页候选 '.$added.'；子站点地图 '.$nested,(int)$source['id']);
+        return ['status'=>'discovered','added'=>$added,'nested'=>$nested,'total'=>count($items)];
     } catch (Throwable $e) {
         agent_backoff($pdo,$source,$e->getMessage());
         return ['status'=>'error','message'=>$e->getMessage()];
