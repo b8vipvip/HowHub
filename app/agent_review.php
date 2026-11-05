@@ -7,6 +7,9 @@ function agent_inspect_resource(array $response, array $source): array
     $mime = url_import_mime($response);
     $url = $response['url'];
     $body = $response['body'];
+    if (preg_match('/\b(noindex|nosnippet|noarchive|noai)\b/i',(string)($response['headers']['x-robots-tag'] ?? ''))) {
+        throw new RuntimeException('来源 HTTP 响应明确禁止索引或生成摘要，已停止处理');
+    }
     $features = ['tables'=>[],'formulas'=>[],'diagrams'=>[],
         'counts'=>['tables'=>0,'formulas'=>0,'diagrams'=>0,'vector'=>0],'warnings'=>[]];
     if (in_array($mime,['text/html','application/xhtml+xml'],true)) {
