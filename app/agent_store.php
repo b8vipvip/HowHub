@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS agent_sources (
  industry TEXT NOT NULL DEFAULT '',
  region TEXT NOT NULL DEFAULT '',
  rights_mode TEXT NOT NULL DEFAULT 'summary' CHECK(rights_mode IN ('summary','licensed')),
+ rights_evidence TEXT NOT NULL DEFAULT '',
  enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1)),
  min_interval INTEGER NOT NULL DEFAULT 1800,
  daily_limit INTEGER NOT NULL DEFAULT 8,
@@ -143,4 +144,23 @@ function agent_enqueue(PDO $pdo, array $source, string $url, string $title = '')
     $stmt = $pdo->prepare('INSERT OR IGNORE INTO agent_candidates(source_id,url,url_hash,title) VALUES (?,?,?,?)');
     $stmt->execute([(int)$source['id'],$url,$hash,mb_substr($title,0,180)]);
     return $stmt->rowCount() === 1;
+}
+
+
+/** Full-media rehosting is opt-in and must include a permission/license record. */
+function agent_set_rights(PDO $pdo, int $id, string $mode, string $evidence): void
+{
+    if (!in_array($mode,['summary','licensed'],true)) throw new InvalidArgumentException('许可模式错误');
+    if ($mode === 'licensed') {
+        $evidence = trim($evidence);
+        if ($evidence === '' || mb_strlen($evidence) < 16) {
+            throw new InvalidArgumentException('转载模式必须填写授权凭据、许可协议及其适用范围');
+        }
+        if (!preg_match('~^(?:https://|许可|授权|本人原创)~u',$evidence)) {
+            throw new InvalidArgumentException('请填写授权证明网址或明确的作品授权说明');
+        }
+    } else $evidence = '';
+    $pdo->prepare('UPDATE agent_sources SET rights_mode=?,rights_evidence=? WHERE id=?')
+        ->execute([$mode,mb_substr($evidence,0,1000),$id]);
+    agent_event($pdo,'rights','success','source rights mode='.$mode,$id);
 }
