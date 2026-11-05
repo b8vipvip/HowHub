@@ -167,6 +167,8 @@ function sanitize_content(string $html): string
             $safeClass = safe_editor_class($child->getAttribute('class'), $tag);
             $safeStyle = safe_editor_style($child->getAttribute('style'), $tag);
             $alt = $tag === 'img' ? mb_substr($child->getAttribute('alt'), 0, 200) : '';
+            $colspan = in_array($tag, ['th','td'], true) ? (int)$child->getAttribute('colspan') : 0;
+            $rowspan = in_array($tag, ['th','td'], true) ? (int)$child->getAttribute('rowspan') : 0;
             while ($child->attributes->length > 0) {
                 $child->removeAttributeNode($child->attributes->item(0));
             }
@@ -183,6 +185,10 @@ function sanitize_content(string $html): string
                 $child->setAttribute('src', $src);
                 $child->setAttribute('alt', $alt);
                 $child->setAttribute('loading', 'lazy');
+            }
+            if (in_array($tag, ['th','td'], true)) {
+                if ($colspan >= 2 && $colspan <= 20) $child->setAttribute('colspan',(string)$colspan);
+                if ($rowspan >= 2 && $rowspan <= 50) $child->setAttribute('rowspan',(string)$rowspan);
             }
             if ($safeClass !== '') $child->setAttribute('class', $safeClass);
             if ($safeStyle !== '') $child->setAttribute('style', $safeStyle);

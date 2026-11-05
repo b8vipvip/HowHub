@@ -6,10 +6,12 @@ declare(strict_types=1);
  * Resolve and pin the IP separately for *every* redirect. Do not use a proxy,
  * system cookies, ambient credentials, browser sessions or script execution.
  */
-function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture = null): array
+function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture = null, array $acceptableStatuses = [], string $userAgent = 'HowHub-URL-Import/1.0', bool $sameHostRedirects = false): array
 {
     if ($limit < 1 || $limit > 40 * 1024 * 1024) throw new InvalidArgumentException('下载限制无效');
     $url = import_page_url($url);
+    $firstHost = strtolower((string)parse_url($url, PHP_URL_HOST));
+    if (strlen($userAgent) > 160 || !preg_match('/^[A-Za-z0-9 ._()\/+;:=-]+$/D', $userAgent)) throw new InvalidArgumentException('User-Agent 格式无效');
     for ($hop = 0; $hop < 4; $hop++) {
         if ($fixture !== null) {
             $response = $fixture($url);
@@ -39,7 +41,7 @@ function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture 
                 CURLOPT_PROXY => '',
                 CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_SSL_VERIFYHOST => 2,
-                CURLOPT_USERAGENT => 'HowHub-URL-Import/1.0',
+                CURLOPT_USERAGENT => $userAgent,
                 CURLOPT_ENCODING => '',
                 CURLOPT_HTTPHEADER => ['Accept: text/html,text/plain,application/pdf,application/json,video/mp4,image/*;q=0.8,*/*;q=0.1'],
                 CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$headers): int {
@@ -47,7 +49,7 @@ function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture 
                     $pos = strpos($line, ':');
                     if ($pos !== false) {
                         $name = strtolower(trim(substr($line, 0, $pos)));
-                        if (in_array($name, ['location','content-type','content-length'], true)) {
+                        if (in_array($name, ['location','content-type','content-length','x-robots-tag'], true)) {
                             $headers[$name] = trim(substr($line, $pos + 1));
                         }
                     }
@@ -69,17 +71,24 @@ function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture 
             if (!$ok) throw new RuntimeException('获取来源网页失败或超时，请确认该网页可公开访问');
         }
         if (in_array($status, [301,302,303,307,308], true)) {
+            // A redirect target needs its own robots check and request reservation.
+            // Do not follow it automatically within a single autonomous tick.
+            if (str_starts_with($userAgent, 'HowHubDiscoveryBot') &&
+                parse_url($url, PHP_URL_PATH) !== '/robots.txt') {
+                throw new RuntimeException('来源跳转至新页面；自动 Agent 不会跳过目标 robots 验证，请登记最终链接');
+            }
             $location = trim((string)($headers['location'] ?? ''));
             if ($location === '') throw new RuntimeException('网页跳转缺少目标地址');
             $next = import_resolve_url($location, $url);
             if ($next === '') throw new RuntimeException('网页跳转至不安全或不支持的地址');
             $url = import_page_url(preg_replace('/#.*$/', '', $next) ?? $next);
+            if ($sameHostRedirects && strtolower((string)parse_url($url, PHP_URL_HOST)) !== $firstHost) throw new RuntimeException('自动发现禁止跨网站跳转');
             continue;
         }
-        if ($status !== 200) throw new RuntimeException('来源网站返回 HTTP ' . $status . '，无法导入；可能要求登录或限制采集');
-        if ($body === '') throw new RuntimeException('来源网页返回空内容');
+        if ($status !== 200 && !in_array($status, $acceptableStatuses, true)) throw new RuntimeException('来源网站返回 HTTP ' . $status . '，无法导入；可能要求登录或限制采集');
+        if ($body === '' && $status === 200) throw new RuntimeException('来源网页返回空内容');
         $type = strtolower(trim(explode(';', (string)($headers['content-type'] ?? ''), 2)[0]));
-        return ['url'=>$url,'body'=>$body,'type'=>$type,'bytes'=>strlen($body)];
+        return ['url'=>$url,'body'=>$body,'type'=>$type,'bytes'=>strlen($body),'status'=>$status,'headers'=>$headers];
     }
     throw new RuntimeException('网页跳转次数超过上限，已停止导入');
 }

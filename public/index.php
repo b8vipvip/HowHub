@@ -141,6 +141,20 @@ if ($method === 'GET' && preg_match('~^/file/(\d+)$~', $path, $match)) {
     exit;
 }
 
+// Public, transparent identification for sites receiving discovery bot requests.
+if ($path === '/agent' && $method === 'GET') {
+    page_start('内容发现 Agent 访问政策');
+    $email=setting('contact_email','');
+    echo '<main class="shell admin-main"><article class="admin-panel"><h1>HowHubDiscoveryBot 内容发现政策</h1>';
+    echo '<p>该 Agent 只访问管理员登记并手动启用的来源站点，尊重 robots.txt，公开使用 HowHubDiscoveryBot/1.0 标识。不使用账号绕过、代理轮换或验证码破解，不绕过访问限制。</p>';
+    echo '<p>默认同站请求最短间隔 1800 秒，24 小时默认不超过 8 次，全局不超过 40 次，禁止短时间反复访问同一页面；若目标服务显示 403、429、503 或禁止规则，系统会停止或退避。</p>';
+    echo '<p>未经明确许可的第三方内容不会自动完整转载；默认只生成待人工审核的原创摘要和来源链接，绝不自动公开发布。</p>';
+    if ($email !== '') echo '<p>联系站点管理员：'.h($email).'</p>';
+    echo '<p>站点可通过 robots.txt 中对 User-agent: HowHubDiscoveryBot 的 Disallow 规则选择不被访问。</p></article></main>';
+    page_end();
+    exit;
+}
+
 // 从此处起均为后台路由。
 if (!str_starts_with($path, '/admin')) {
     error_page(404, '页面不存在', '找不到你要访问的页面。');
@@ -188,6 +202,25 @@ if ($path === '/admin/login') {
 }
 
 require_admin();
+
+if ($path === '/admin/agent' && $method === 'GET') {
+    agent_admin_page($pdo);
+    exit;
+}
+
+if ($path === '/admin/agent/action' && $method === 'POST') {
+    check_csrf();
+    try {
+        $message=agent_admin_action($pdo,$_POST);
+        flash($message);
+    } catch (Throwable $e) {
+        diag_exception('discovery_agent','admin_action',$e);
+        $message=$e instanceof InvalidArgumentException || $e instanceof RuntimeException ?
+            $e->getMessage() : 'Agent 设置失败，请检查诊断日志';
+        flash($message,'error');
+    }
+    redirect_to('/admin/agent');
+}
 
 if ($path === '/admin/diagnostics/client' && $method === 'POST') {
     header('Content-Type: application/json; charset=utf-8');

@@ -9,6 +9,7 @@ for attempt in $(seq 1 30); do
   sleep .25
 done
 curl -fsS http://127.0.0.1:8099/healthz | grep -q '"ok":true'
+curl -fsS http://127.0.0.1:8099/agent | grep -q 'HowHubDiscoveryBot'
 # A site under maintenance must not accept new PHP requests.
 touch storage/.maintenance
 maintenance_status=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/healthz)
@@ -113,6 +114,11 @@ echo 'HowHub e2e passed: homepage / guide / search / admin / editor / media / CS
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'AI 供应商'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'ai-source-html'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'url-import-generate'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/agent | grep -q '内容发现 Agent'
+agent_auth=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/admin/agent)
+test "$agent_auth" = '303'
+agent_csrf=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'action=global&enabled=1' http://127.0.0.1:8099/admin/agent/action)
+test "$agent_csrf" = '419'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-toggle-source'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-preview-dialog'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-ai-optimize'
@@ -195,6 +201,28 @@ try {
 }
 PHP
 echo 'HowHub URL AI e2e passed: admin CSRF / SSRF / model classification / non-guide refusal / HTML result'
+
+# The autonomous agent is separate from manual URL imports: score and summary
+# are generated, but no publicly visible guide is created.
+php <<'PHP'
+<?php
+require 'app/bootstrap.php';
+$before=(int)database()->query('SELECT COUNT(*) FROM guides')->fetchColumn();
+$review=agent_ai_evaluate(str_repeat("设备连接的方法包括开机后进入设置，按步骤绑定账号并检查连接状态。\n",15),
+    'https://docs.example.com/guide','信息技术');
+if (!$review['approved'] || $review['score']<70) throw new RuntimeException('agent classification rejected useful content');
+$html=agent_summary_html($review,'https://docs.example.com/guide');
+if (!str_contains($html,'https://docs.example.com/guide') || str_contains($html,'<script')) {
+    throw new RuntimeException('agent original summary/provenance missing');
+}
+$bad=agent_ai_evaluate(str_repeat('CI_AGENT_AD_ONLY 推销和广告。\n',15),
+    'https://docs.example.com/sales','广告');
+if ($bad['approved']) throw new RuntimeException('agent mistakenly approved advertising content');
+$after=(int)database()->query('SELECT COUNT(*) FROM guides')->fetchColumn();
+if ($before!==$after) throw new RuntimeException('agent unexpectedly published or created a guide');
+PHP
+echo 'HowHub agent AI e2e passed: relevance score / original summary / provenance / reject promotion / no publish'
+
 
 # Optional source page URL resolves relative text links without fetching the page.
 linked=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \

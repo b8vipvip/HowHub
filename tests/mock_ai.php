@@ -47,6 +47,20 @@ if ($path === '/v1/chat/completions') {
         if ($signal !== '') file_put_contents($signal, 'ready');
         usleep(3500000);
     }
+    if (str_contains($input, '待评估内容：')) {
+        $isAd = str_contains($input, 'CI_AGENT_AD_ONLY');
+        mock_reply([
+            'useful'=>!$isAd,
+            'score'=>$isAd ? 12 : 92,
+            'title'=>$isAd ? '广告介绍' : '操作方法与问题解答',
+            'summary'=>$isAd ? '没有清晰操作步骤' : '这份来自原始技术文档的内容详细说明了设备连接、账号绑定、状态核对和常见失败原因的处理方式。读者可根据自己的设备状态逐步检查网络配置，操作之前应核对具体型号与官方说明，避免未经证实的设置影响系统正常运行。',
+            'key_points'=>$isAd ? [] : ['先检查设备和网络状态，再根据型号进入设置', '根据提示绑定账号并确认最终连接结果'],
+            'concerns'=>['AI 根据单一来源整理，尚未独立核实'],
+            'category'=>'信息技术',
+            'language'=>'English',
+        ], $stream);
+        exit;
+    }
     if (str_contains($input, '内容来源：')) {
         $notTutorial = str_contains($input, 'CI_NOT_GUIDE');
         mock_reply([

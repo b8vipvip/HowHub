@@ -56,7 +56,7 @@ function media_remote_target(string $url): array
 }
 
 /** Download at most 6 MiB; no redirects, proxies, private network or invalid TLS. */
-function media_remote_bytes(string $url): string
+function media_remote_bytes(string $url, string $userAgent = 'HowHub-Image-Importer/1.0'): string
 {
     if (!extension_loaded('curl')) throw new RuntimeException('PHP 未启用 curl 扩展，无法转存图片');
     [$host, $port, $ip] = media_remote_target($url);
@@ -75,7 +75,7 @@ function media_remote_bytes(string $url): string
         CURLOPT_PROXY => '', // Prevent environment proxy from bypassing pinned DNS.
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
-        CURLOPT_USERAGENT => 'HowHub-Image-Importer/1.0',
+        CURLOPT_USERAGENT => $userAgent,
         CURLOPT_HTTPHEADER => ['Accept: image/png,image/jpeg,image/webp,image/gif'],
         CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$body, &$overflow): int {
             if (strlen($body) + strlen($chunk) > 6 * 1024 * 1024) {
