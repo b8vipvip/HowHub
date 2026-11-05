@@ -20,6 +20,8 @@ jobs:
         run: php tests/stream.php
       - name: Smoke tests
         run: php tests/smoke.php
+      - name: Universal HTML import tests
+        run: php tests/universal_import.php
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
       - name: Verified update and rollback integration test

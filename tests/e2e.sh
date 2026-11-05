@@ -153,6 +153,14 @@ php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 ||
 after_import=$(php -r 'require "app/bootstrap.php"; echo database()->query("SELECT COUNT(*) FROM guides")->fetchColumn();')
 test "$before_import" = "$after_import"
 echo 'HowHub mock chat2api e2e passed: encrypted config / model discovery / raw HTML to editor / no database writes'
+# Optional source page URL resolves relative text links without fetching the page.
+linked=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'source_url=https://docs.example.com/guide/start.html' \
+  --data-urlencode 'html=<article><h2>连接操作</h2><p>阅读<a href="../docs">官方文档</a>后再进行设置</p></article>' \
+  http://127.0.0.1:8099/admin/import/generate)
+php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["link_count"] !== 1 || !str_contains($j["html"], "https://docs.example.com/docs") || !str_contains($j["html"], "官方文档") || str_contains($j["html"], "javascript:")) exit(1);' "$linked"
+echo 'HowHub universal HTML URL/link HTTP e2e passed'
+
 
 # The optimization request is an editor-only preview, not a database write.
 blocked=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST \

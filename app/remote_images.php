@@ -101,6 +101,23 @@ function media_remote_bytes(string $url): string
 function media_import_remote_image(PDO $pdo, string $url, ?callable $downloader = null): string
 {
     $bytes = $downloader === null ? media_remote_bytes($url) : $downloader($url);
+    return media_store_import_bytes($pdo, $bytes);
+}
+
+/** Decode embedded raster data safely; SVG and Blob URLs are intentionally rejected. */
+function media_import_data_image(PDO $pdo, string $uri): string
+{
+    if (strlen($uri) > 300000 || !preg_match('~^data:image/(png|jpe?g|webp|gif);base64,([a-zA-Z0-9+/=]+)$~D', $uri, $match)) {
+        throw new RuntimeException('嵌入图片格式不支持或超过输入限制');
+    }
+    $bytes = base64_decode($match[2], true);
+    if ($bytes === false) throw new RuntimeException('嵌入图片不是有效的 Base64');
+    return media_store_import_bytes($pdo, $bytes);
+}
+
+/** Shared validation and registration for both external and embedded images. */
+function media_store_import_bytes(PDO $pdo, mixed $bytes): string
+{
     if (!is_string($bytes) || strlen($bytes) < 1 || strlen($bytes) > 6 * 1024 * 1024) {
         throw new RuntimeException('下载的图片大小无效（最大 6MB）');
     }
