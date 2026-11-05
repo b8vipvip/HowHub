@@ -3,15 +3,31 @@ declare(strict_types=1);
 
 function url_import_mime(array $response): string
 {
-    $type = $response['type'];
-    if ($type !== '' && $type !== 'application/octet-stream') return $type;
-    $data = $response['body'];
-    $path = strtolower((string)(parse_url($response['url'], PHP_URL_PATH) ?: ''));
+    $data = (string)($response['body'] ?? '');
+    $type = strtolower((string)($response['type'] ?? ''));
+    $path = strtolower((string)(parse_url((string)$response['url'], PHP_URL_PATH) ?: ''));
+    // Prefer verified file signatures to often incorrect origin Content-Type.
     if (str_starts_with($data, '%PDF-')) return 'application/pdf';
-    if (str_starts_with($data, "\x00\x00\x00") && str_contains(substr($data, 0, 16), 'ftyp')) return 'video/mp4';
+    if (str_contains(substr($data, 0, 16), 'ftyp')) {
+        return str_ends_with($path, '.mov') ? 'video/quicktime' : 'video/mp4';
+    }
+    if (str_starts_with($data, "\x1A\x45\xDF\xA3")) return 'video/webm';
+    if (str_starts_with($data, "\x89PNG\r\n\x1A\n")) return 'image/png';
+    if (str_starts_with($data, "\xFF\xD8\xFF")) return 'image/jpeg';
+    if (str_starts_with($data, 'GIF87a') || str_starts_with($data, 'GIF89a')) return 'image/gif';
+    if (substr($data, 0, 4) === 'RIFF' && substr($data, 8, 4) === 'WEBP') return 'image/webp';
+    if (str_starts_with($data, "PK\x03\x04")) {
+        if (str_ends_with($path, '.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        if (str_ends_with($path, '.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        if (str_ends_with($path, '.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if ($type !== '' && $type !== 'application/octet-stream' && $type !== 'binary/octet-stream') return $type;
     foreach (['.md'=>'text/markdown','.txt'=>'text/plain','.html'=>'text/html','.htm'=>'text/html',
-              '.mp4'=>'video/mp4','.webm'=>'video/webm','.json'=>'application/json','.pdf'=>'application/pdf',
-              '.docx'=>'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] as $ext=>$mime) {
+              '.mp4'=>'video/mp4','.mov'=>'video/quicktime','.webm'=>'video/webm',
+              '.json'=>'application/json','.pdf'=>'application/pdf',
+              '.docx'=>'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              '.pptx'=>'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+              '.xlsx'=>'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] as $ext=>$mime) {
         if (str_ends_with($path, $ext)) return $mime;
     }
     if (preg_match('/<html|<!doctype html|<article/i', substr($data, 0, 512))) return 'text/html';
