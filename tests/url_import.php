@@ -72,4 +72,25 @@ foreach (['http://127.0.0.1/', 'http://localhost/', 'http://169.254.169.254/late
         if ($error instanceof LogicException && !($error instanceof InvalidArgumentException)) throw $error;
     }
 }
+// MIME must use real signatures even if a CDN reports application/octet-stream.
+if (url_import_mime(['type'=>'application/octet-stream','body'=>"%PDF-1.4\nexample",'url'=>'https://files.example.com/manual']) !== 'application/pdf') {
+    throw new RuntimeException('PDF 文件头未正确识别');
+}
+if (url_import_mime(['type'=>'application/octet-stream','body'=>"\x00\x00\x00\x18ftypisomxxxxxxxx",'url'=>'https://files.example.com/demo.mov']) !== 'video/quicktime') {
+    throw new RuntimeException('MOV 视频文件头未正确识别');
+}
+$pdo = database();
+$GLOBALS['howhub_url_import_pending'] = [];
+$gif = base64_decode('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', true);
+$sourceMedia = media_store_import_bytes($pdo, $gif);
+$q = $pdo->prepare('SELECT * FROM media_assets WHERE url=?');
+$q->execute([$sourceMedia]);
+$pending = $q->fetch();
+if (!$pending || !media_file_path($pending)) throw new RuntimeException('素材未入库');
+$diskPath = media_file_path($pending);
+url_import_discard_assets($pdo);
+if (is_file($diskPath) || isset($GLOBALS['howhub_url_import_pending'])) {
+    throw new RuntimeException('AI 失败时残留本次导入素材');
+}
+
 echo "HowHub URL import passed: redirects / article / provenance / relative links / video captions / insufficient video / private IP\n";
