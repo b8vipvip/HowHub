@@ -47,6 +47,15 @@ if ($path === '/v1/chat/completions') {
         if ($signal !== '') file_put_contents($signal, 'ready');
         usleep(3500000);
     }
+    if (str_contains($input, '内容来源：')) {
+        $notTutorial = str_contains($input, 'CI_NOT_GUIDE');
+        mock_reply([
+            'is_tutorial' => !$notTutorial,
+            'reason' => $notTutorial ? '只有商品广告，没有操作步骤' : '包含可验证的设备操作步骤',
+            'suggested_title' => $notTutorial ? '' : '从来源导入的操作教程',
+        ], $stream);
+        exit;
+    }
     if (str_contains($input, '[[HH_IMAGE_01]]')) {
         $html = '<div class="hh-step"><h2 style="color:#6753cc">优化后的步骤</h2><p class="hh-tip">按原顺序完成绑定</p><figure>[[HH_IMAGE_01]]</figure>';
         if (str_contains($input, '[[HH_IMAGE_02]]')) $html .= '<figure>[[HH_IMAGE_02]]</figure>';
