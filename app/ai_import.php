@@ -414,6 +414,13 @@ function import_safe_html_output(string $content, array $source): string
     $actual = [];
     foreach ($dom->getElementsByTagName('img') as $image) $actual[] = $image->getAttribute('src');
     if ($actual !== array_column($source['images'], 'src')) throw new RuntimeException('生成 HTML 的图片校验失败，原文保持不变');
+    $expectedLinks = array_column($links, 'href');
+    foreach ($source['images'] as $image) if (!empty($image['href'])) $expectedLinks[] = $image['href'];
+    $actualLinks = [];
+    foreach ($dom->getElementsByTagName('a') as $a) $actualLinks[] = $a->getAttribute('href');
+    sort($actualLinks);
+    sort($expectedLinks);
+    if ($actualLinks !== $expectedLinks) throw new RuntimeException('生成 HTML 的原始链接校验失败，原文保持不变');
     return $html;
 }
 
