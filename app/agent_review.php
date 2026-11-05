@@ -128,12 +128,30 @@ function agent_process_candidate(PDO $pdo, array $source, array $candidate, ?cal
         }
         $body=agent_summary_html($review,$url);
         $media=[];
+        $archived = '';
         if ($source['rights_mode']==='licensed' && trim($source['rights_evidence'])!=='') {
             $licensed=agent_licensed_html($review,$inspection,$url,$source);
             $body=$licensed['html'];$media=$licensed['media'];
+            // Only rehost the explicitly licensed origin file after the AI gate.
+            // One already-budgeted source HTTP fetch, never a second background
+            // request to the same page or a foreign CDN.
+            $kind=$inspection['kind'];
+            if (str_starts_with($kind,'image/')) {
+                $archived=media_store_import_bytes($pdo,$response['body']);
+                $body.='<h2>来源授权图片</h2><figure><img src="'.h($archived).'" alt="获许可使用的原图"></figure>';
+            } elseif (str_starts_with($kind,'video/')) {
+                $extension=match($kind) {'video/webm'=>'webm','video/quicktime'=>'mov',default=>'mp4'};
+                $archived=url_import_archive($pdo,$response['body'],$extension,'授权来源视频');
+                $body.='<p><a href="'.h($archived).'">下载获授权的原视频</a></p>';
+            } elseif ($kind==='pdf') {
+                $archived=url_import_archive($pdo,$response['body'],'pdf','授权来源文档');
+                $body.='<p><a href="'.h($archived).'">下载获授权的来源 PDF</a></p>';
+            }
+            $body=sanitize_content($body);
         }
         $stats=['source_kind'=>$inspection['kind'],'formats'=>$inspection['features']['counts'],
-            'warnings'=>$inspection['features']['warnings'],'licensed'=>$source['rights_mode']==='licensed'];
+            'warnings'=>$inspection['features']['warnings'],'licensed'=>$source['rights_mode']==='licensed',
+            'source_asset'=>$archived !== '' ? 'archived' : 'not_applicable'];
         $evidence=['score'=>$review['score'],'language'=>$review['language'],
             'category'=>$review['category'],'concerns'=>$review['concerns'],
             'verification'=>'single_source_not_independently_verified'];
