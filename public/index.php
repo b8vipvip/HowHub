@@ -347,7 +347,7 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
     $_SESSION[$windowKey] = $history;
     // Do not lock the admin's PHP session for 10 minutes while the model is running.
     session_write_close();
-    @set_time_limit(720);
+    @set_time_limit($isUrlImport ? 1200 : 720);
     @ini_set('zlib.output_compression', '0');
     while (ob_get_level() > 0) @ob_end_flush();
     header('Content-Type: text/event-stream; charset=utf-8');
@@ -367,6 +367,7 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
     $GLOBALS['howhub_sse_started'] = true;
     $emit('status', ['text'=>'正在检查内容并准备调用 AI…']);
     diag_event('info', 'ai', $action, 'start');
+    if ($isUrlImport) $GLOBALS['howhub_url_import_pending'] = [];
     try {
         $delta = static function (string $chunk) use ($emit): void { $emit('delta', ['text'=>$chunk]); };
         $stage = static function (string $label) use ($emit): void { $emit('status', ['text'=>$label]); };
@@ -379,16 +380,17 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
         } elseif ($isUrlImport) {
             $sourceUrl = (string)($_POST['url'] ?? '');
             $source = url_import_prepare($pdo, $sourceUrl, $stage);
-            if (connection_aborted()) exit;
+            if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
             $emit('status', ['text'=>'已获取来源内容，正在分析可用教程步骤与素材…']);
             $result = url_import_generate($source, $delta, $stage);
-            if (connection_aborted()) exit;
+            if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
             $emit('status', ['text'=>'AI 生成通过验证，正在转存原网页图片…']);
             $result = array_merge($result, media_localize_html($pdo, $result['html'], $stage));
-            if (connection_aborted()) exit;
+            if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
             diag_event('info','url_import','generate', $result['failed_count'] ? 'partial' : 'success', [
                 'kind'=>$result['source_kind'],'images'=>$result['image_count'],
                 'localized'=>$result['localized_count'],'failed'=>$result['failed_count']]);
+            unset($GLOBALS['howhub_url_import_pending']);
             $emit('complete', ['ok'=>true] + $result);
         } else {
             $source = import_prepare_source((string)($_POST['html'] ?? ''), (string)($_POST['source_url'] ?? ''));
@@ -404,6 +406,7 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             $emit('complete', ['ok'=>true] + $result);
         }
     } catch (Throwable $e) {
+        if ($isUrlImport) url_import_discard_assets($pdo);
         diag_exception('ai', $action, $e);
         $msg = $e instanceof InvalidArgumentException || $e instanceof RuntimeException ? $e->getMessage() : 'AI 运行失败，请检查后台诊断日志';
         $emit('error', ['error'=>$msg]);
