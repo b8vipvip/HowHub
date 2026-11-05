@@ -100,8 +100,10 @@ function agent_robots_gate(PDO $pdo, array $source, string $url, ?callable $fixt
 function agent_rate_take(PDO $pdo, array $source, string $url, string $purpose, int $robotsDelay = 0, ?int $now = null): array
 {
     $now ??= time();
-    $pdo->exec('BEGIN IMMEDIATE');
+    $begun=false;
     try {
+        $pdo->exec('BEGIN IMMEDIATE');
+        $begun=true;
         $stmt = $pdo->prepare('SELECT * FROM agent_sources WHERE id=?');
         $stmt->execute([$source['id']]);
         $fresh = $stmt->fetch();
@@ -127,10 +129,11 @@ function agent_rate_take(PDO $pdo, array $source, string $url, string $purpose, 
         $pdo->prepare('UPDATE agent_sources SET next_fetch=? WHERE id=?')->execute([$now+$gap,$fresh['id']]);
         $pdo->prepare('INSERT INTO agent_requests(source_id,url_hash,purpose,requested_at) VALUES (?,?,?,?)')
             ->execute([$fresh['id'],$hash,$purpose,$now]);
-        $pdo->commit();
+        $pdo->exec('COMMIT');
+        $begun=false;
         return ['ok'=>true,'next'=>$now+$gap];
     } catch (Throwable $e) {
-        $pdo->rollBack();
+        if ($begun) $pdo->exec('ROLLBACK');
         return ['ok'=>false,'reason'=>$e->getMessage()];
     }
 }
