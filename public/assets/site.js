@@ -605,8 +605,16 @@
         undoOptimizeButton.hidden = false;
         sourceEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
         sourceEditor.focus();
-        importStatus.textContent = `已生成 HTML 并填入下方源码编辑器，保留 ${result.image_count} 张原图。可预览、撤销，再自行保存文章。`;
-        messageText('AI 生成的 HTML 已填入当前文章源码区，尚未保存。请预览确认后再保存。');
+        const saved = Number(result.localized_count || 0);
+        const failed = Number(result.failed_count || 0);
+        const details = (result.transfer_errors || []).join('；');
+        if (failed > 0) {
+          importStatus.textContent = `已填入编辑器：原图 ${result.image_count} 张，转存成功 ${saved} 张、失败 ${failed} 张。失败图片仍为原站外链，请勿在核实前发布。原因：${details}`;
+          messageText('有 ' + failed + ' 张图片转存失败，部分图片仍使用原站链接。请检查详情或从素材库替换。', true);
+        } else {
+          importStatus.textContent = `已填入编辑器：保留 ${result.image_count} 张原图，其中 ${saved} 张外链已转存到本站。可预览并自行保存文章。`;
+          messageText('HTML 和图片已处理并填入当前文章源码区，尚未保存教程。请预览确认后再保存。');
+        }
       } catch (err) {
         reportClientFailure('ai', 'html_import_ui');
         importStatus.textContent = 'AI 导入失败：' + (err.message || '网络错误') + '（原始输入和当前文章均保留，可重试）';

@@ -130,6 +130,53 @@ if ($plain['images'] !== [] || !str_contains($plain['content'], '重新启动'))
 if (!str_contains(import_safe_html_output('<h2>第一步</h2><p>重启设备</p>', $plain), '<h2>第一步</h2>')) throw new RuntimeException('无图片 HTML 整理失败');
 echo "HowHub generic HTML import passed: CMS/WordPress-like HTML / plain text / images / safe markup\n";
 
+// A partially loaded Yuque DOM must not silently lose image slots and must
+// never let the language model invent URLs for unloaded images.
+try {
+    import_prepare_source('<div class="ne-viewer-body"><ne-p>绑定流程</ne-p><img src="https://cdn.nlark.com/yuque/demo.png"><img class="ne-image-hide"></div>');
+    throw new RuntimeException('应拒绝缺少 src 的懒加载原图');
+} catch (InvalidArgumentException $e) {
+    if (!str_contains($e->getMessage(), '1 张图片') || !str_contains($e->getMessage(), 'src')) throw $e;
+}
+// URL validation must reject localhost, cloud metadata and custom ports
+// before any network request can occur.
+foreach (['http://127.0.0.1/latest/meta-data/', 'http://169.254.169.254/latest/meta-data/',
+          'http://localhost/img.png', 'http://example.com:8080/img.png',
+          'file:///etc/passwd'] as $bad) {
+    try {
+        media_remote_target($bad);
+        throw new RuntimeException('意外接受不安全远程图片地址: ' . $bad);
+    } catch (RuntimeException $e) {
+        if (str_contains($e->getMessage(), '意外接受')) throw $e;
+    }
+}
+$exampleImg = 'https://cdn.example.org/sample.gif';
+$gif = base64_decode('R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', true);
+$local = media_localize_html($pdo,
+    '<h2>测试图文</h2><p><img src="' . $exampleImg . '" alt="原图"></p>',
+    null, static fn(string $url): string => $gif);
+if ($local['localized_count'] !== 1 || $local['failed_count'] !== 0 ||
+    str_contains($local['html'], $exampleImg) || !str_contains($local['html'], 'src="/uploads/') ||
+    !str_contains($local['html'], 'alt="原图"')) {
+    throw new RuntimeException('外链图片未真实下载/入库/替换');
+}
+preg_match('~src="(/uploads/[^"]+)"~', $local['html'], $match);
+$stmt = $pdo->prepare('SELECT * FROM media_assets WHERE url=?');
+$stmt->execute([$match[1] ?? '']);
+$stored = $stmt->fetch();
+if (!$stored || !is_file(media_file_path($stored)) || file_get_contents(media_file_path($stored)) !== $gif) {
+    throw new RuntimeException('转存图片未写入素材库或原图内容不一致');
+}
+media_delete($pdo, (int)$stored['id']);
+$failed = media_localize_html($pdo, '<p><img src="' . $exampleImg . '"></p>', null,
+    static function (string $url): string { throw new RuntimeException('网络错误'); });
+if ($failed['localized_count'] !== 0 || $failed['failed_count'] !== 1 ||
+    !str_contains($failed['html'], $exampleImg) || !str_contains(implode('', $failed['transfer_errors']), '网络错误')) {
+    throw new RuntimeException('远程图片转存失败时未保留原 URL 或返回诊断信息');
+}
+echo "HowHub remote media passed: lazy URL detection / SSRF / local storage / failure fallback\n";
+
+
 // Source HTML is editable, but the sanitizer only retains supported style/color tokens.
 $styled = sanitize_content('<h2 class="hh-step evil" style="color:#6144dd;background-color:#f2f1ff;font-size:23px;position:fixed;background-image:url(https://evil.invalid/a)">步骤</h2><img src="/uploads/photo.png" style="width:70%;position:absolute" onerror="x">');
 foreach (['class="hh-step"','color:#6144dd','background-color:#f2f1ff','font-size:23px','width:70%'] as $allowed) {

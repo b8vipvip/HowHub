@@ -326,9 +326,10 @@ function import_prepare_source(string $raw): array
         $doc->loadHTML('<?xml encoding="UTF-8"><html><body>' . $raw . '</body></html>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_COMPACT);
     } finally { libxml_clear_errors(); libxml_use_internal_errors($previous); }
     $images = [];
+    $unloadedImages = 0;
     $blockTags = ['p','div','section','article','h1','h2','h3','h4','h5','h6','li','ol','ul','blockquote','figure','figcaption','tr','table','br','ne-p'];
     $output = '';
-    $walk = function (DOMNode $node) use (&$walk, &$images, &$output, $blockTags): void {
+    $walk = function (DOMNode $node) use (&$walk, &$images, &$unloadedImages, &$output, $blockTags): void {
         if ($node instanceof DOMText) {
             $output .= preg_replace('/\s+/u', ' ', $node->textContent) ?? '';
             return;
@@ -349,7 +350,15 @@ function import_prepare_source(string $raw): array
             }
             $src = str_replace(['https\\://','http\\://'], ['https://','http://'], trim($src));
             $src = safe_image($src);
-            if ($src !== '' && count($images) < 60) {
+            if ($src === '') {
+                // Yuque and other editors may output a lazy-loading skeleton
+                // (<img class="ne-image-hide">) before its actual URL is available.
+                // Never silently drop those images or let the model invent URLs.
+                $unloadedImages++;
+                return;
+            }
+            if (count($images) >= 60) throw new InvalidArgumentException('一次最多导入 60 张图片，请分段操作');
+            {
                 $marker = '[[IMAGE_' . (count($images) + 1) . ']]';
                 $images[] = ['marker' => $marker, 'src' => $src, 'alt' => mb_substr($node->getAttribute('alt'), 0, 160)];
                 $output .= "\n" . $marker . "\n";
@@ -381,6 +390,9 @@ function import_prepare_source(string $raw): array
     }
     if ($body) foreach ($body->childNodes as $child) $walk($child);
     $output = trim(preg_replace('/[ \t]+/u', ' ', preg_replace('/\n{3,}/', "\n\n", $output) ?? '') ?? '');
+    if ($unloadedImages > 0) {
+        throw new InvalidArgumentException('原网页有 ' . $unloadedImages . ' 张图片尚未加载、缺少真实 src 地址。请在源网页滚动到底并等待全部图片显示，再复制已加载的 DOM HTML；此次未调用 AI，也没有修改编辑器。');
+    }
     if (mb_strlen($output) < 4) throw new InvalidArgumentException('网页内容不足，无法识别教程');
     return ['content' => mb_substr($output, 0, 90000), 'images' => $images];
 }
