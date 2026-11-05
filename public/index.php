@@ -380,7 +380,10 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             $emit('status', ['text'=>'已识别 '.count($source['images']).' 张配图，等待 AI 生成…']);
             $result = ai_generate_import_html($source, $delta, $stage);
             if (connection_aborted()) exit;
-            $emit('status', ['text'=>'HTML 已生成并通过安全校验，准备填入当前编辑器…']);
+            $emit('status', ['text'=>'HTML 已生成，正在将外部图片转存到本站素材库…']);
+            $result = array_merge($result, media_localize_html($pdo, $result['html'], $stage));
+            if (connection_aborted()) exit;
+            $emit('status', ['text'=>$result['failed_count'] > 0 ? '部分图片转存失败，请查看结果警告…' : '所有可下载图片已转存，准备填入当前编辑器…']);
             diag_event('info', 'ai', $action, 'success', ['count'=>$result['image_count']]);
             $emit('complete', ['ok'=>true] + $result);
         }
@@ -431,7 +434,8 @@ if ($path === '/admin/import/generate' && $method === 'POST') {
         session_write_close();
         $source = import_prepare_source((string)($_POST['html'] ?? ''));
         $result = ai_generate_import_html($source);
-        diag_event('info', 'ai', 'html_import', 'success', ['count' => $result['image_count']]);
+        $result = array_merge($result, media_localize_html($pdo, $result['html']));
+        diag_event('info', 'ai', 'html_import', 'success', ['count' => $result['image_count'], 'localized' => $result['localized_count'], 'failed' => $result['failed_count']]);
         echo json_encode(['ok'=>true] + $result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     } catch (Throwable $e) {
         diag_exception('ai', 'html_import', $e);
