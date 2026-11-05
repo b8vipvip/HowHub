@@ -29,6 +29,7 @@ function url_import_archive(PDO $pdo, string $bytes, string $ext, string $label)
     try {
         $name = mb_substr($label, 0, 80) . '.' . $ext;
         $asset = media_register($pdo, 'file', $relative, $name, 'application/octet-stream', strlen($bytes));
+        url_import_record_asset($asset);
         return $asset['url'];
     } catch (Throwable $e) {
         @unlink($path);
