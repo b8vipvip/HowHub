@@ -43,9 +43,16 @@ function agent_inspect_resource(array $response, array $source): array
         if (mb_strlen(trim($text)) < 100) throw new RuntimeException('文本内容不足');
         return ['text'=>$text,'features'=>$features,'kind'=>'text','raw_html'=>'','title'=>''];
     }
-    if ($mime==='application/pdf') {
-        $text=url_import_document_text($body,'pdf');
-        return ['text'=>$text,'features'=>$features,'kind'=>'pdf','raw_html'=>'','title'=>''];
+    $officeFormats=[
+        'application/pdf'=>'pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'=>'docx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'=>'pptx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'=>'xlsx',
+    ];
+    if (isset($officeFormats[$mime])) {
+        $extension=$officeFormats[$mime];
+        $text=url_import_document_text($body,$extension);
+        return ['text'=>$text,'features'=>$features,'kind'=>$extension,'raw_html'=>'','title'=>''];
     }
     if (str_starts_with($mime,'image/') || str_starts_with($mime,'video/')) {
         if ($source['rights_mode']!=='licensed' || trim($source['rights_evidence'])==='') {
@@ -143,9 +150,9 @@ function agent_process_candidate(PDO $pdo, array $source, array $candidate, ?cal
                 $extension=match($kind) {'video/webm'=>'webm','video/quicktime'=>'mov',default=>'mp4'};
                 $archived=url_import_archive($pdo,$response['body'],$extension,'授权来源视频');
                 $body.='<p><a href="'.h($archived).'">下载获授权的原视频</a></p>';
-            } elseif ($kind==='pdf') {
-                $archived=url_import_archive($pdo,$response['body'],'pdf','授权来源文档');
-                $body.='<p><a href="'.h($archived).'">下载获授权的来源 PDF</a></p>';
+            } elseif (in_array($kind,['pdf','docx','pptx','xlsx'],true)) {
+                $archived=url_import_archive($pdo,$response['body'],$kind,'授权来源文档');
+                $body.='<p><a href="'.h($archived).'">下载获授权的原始文档</a></p>';
             }
             $body=sanitize_content($body);
         }
