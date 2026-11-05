@@ -49,7 +49,7 @@ function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture 
                     $pos = strpos($line, ':');
                     if ($pos !== false) {
                         $name = strtolower(trim(substr($line, 0, $pos)));
-                        if (in_array($name, ['location','content-type','content-length'], true)) {
+                        if (in_array($name, ['location','content-type','content-length','x-robots-tag'], true)) {
                             $headers[$name] = trim(substr($line, $pos + 1));
                         }
                     }
@@ -71,6 +71,12 @@ function url_import_fetch(string $url, int $limit = 2097152, ?callable $fixture 
             if (!$ok) throw new RuntimeException('获取来源网页失败或超时，请确认该网页可公开访问');
         }
         if (in_array($status, [301,302,303,307,308], true)) {
+            // A redirect target needs its own robots check and request reservation.
+            // Do not follow it automatically within a single autonomous tick.
+            if (str_starts_with($userAgent, 'HowHubDiscoveryBot') &&
+                parse_url($url, PHP_URL_PATH) !== '/robots.txt') {
+                throw new RuntimeException('来源跳转至新页面；自动 Agent 不会跳过目标 robots 验证，请登记最终链接');
+            }
             $location = trim((string)($headers['location'] ?? ''));
             if ($location === '') throw new RuntimeException('网页跳转缺少目标地址');
             $next = import_resolve_url($location, $url);
