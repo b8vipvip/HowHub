@@ -52,6 +52,20 @@ CREATE TABLE IF NOT EXISTS agent_requests (
 );
 CREATE INDEX IF NOT EXISTS agent_requests_day ON agent_requests(source_id,requested_at);
 CREATE INDEX IF NOT EXISTS agent_candidates_work ON agent_candidates(status,next_check,id);
+CREATE TABLE IF NOT EXISTS agent_media (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ source_id INTEGER NOT NULL REFERENCES agent_sources(id) ON DELETE CASCADE,
+ candidate_id INTEGER NOT NULL REFERENCES agent_candidates(id) ON DELETE CASCADE,
+ url TEXT NOT NULL,
+ url_hash TEXT NOT NULL,
+ local_url TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'queued'
+  CHECK(status IN ('queued','done','skipped')),
+ attempts INTEGER NOT NULL DEFAULT 0,
+ last_message TEXT NOT NULL DEFAULT '',
+ UNIQUE(candidate_id,url_hash)
+);
+CREATE INDEX IF NOT EXISTS agent_media_work ON agent_media(status,id);
 CREATE TABLE IF NOT EXISTS agent_events (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  source_id INTEGER,
