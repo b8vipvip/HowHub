@@ -140,6 +140,14 @@ function url_import_prepare(PDO $pdo, string $url, ?callable $onStage = null, ?c
     }
     if (strlen($html) > 300000) throw new RuntimeException('抽取内容超过导入上限，请分段导入');
     $source = import_prepare_source($html, $sourceKind === 'webpage' ? $finalUrl : '');
+    // The DOM importer selects the article region, which may omit the source
+    // attribution we appended after the article. Protect it explicitly.
+    if ($sourceKind === 'webpage') {
+        if (count($source['links']) >= 100) throw new RuntimeException('原文链接数量达到上限，无法附加来源');
+        $marker = '[[LINK_' . (count($source['links']) + 1) . ']]';
+        $source['links'][] = ['marker'=>$marker,'href'=>$finalUrl,'text'=>'文章来源'];
+        $source['content'] .= "\n文章来源：" . $marker;
+    }
     $source = import_prepare_embedded($pdo, $source);
     $source['source_kind'] = $sourceKind;
     $source['source_title'] = $title;
