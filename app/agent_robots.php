@@ -68,6 +68,8 @@ function agent_robots_gate(PDO $pdo, array $source, string $url, ?callable $fixt
     $now ??= time();
     if ($source['robots_checked'] < $now - 86400 || $source['robots_state'] === 'unknown') {
         $robotsUrl = $source['origin'] . '/robots.txt';
+        $budget = agent_rate_take($pdo,$source,$robotsUrl,'robots',0,$now);
+        if (!$budget['ok']) return ['ready'=>false,'allowed'=>false,'message'=>$budget['reason']];
         try {
             $response = url_import_fetch($robotsUrl, 524288, $fixture,
                 [401,403,404,410,429,500,502,503,504], AGENT_UA, true);
