@@ -10,6 +10,10 @@ function import_resolve_url(string $value, string $base = '', bool $image = fals
         return strlen($url) <= 300000 ? $url : '';
     }
     if ($image && $base === '' && str_starts_with($url, '/uploads/') && !str_contains($url, '..')) return $url;
+    if ($base === '' && str_starts_with($url, '//')) {
+        $resolved = 'https:' . $url;
+        return $image ? safe_image($resolved) : safe_link($resolved);
+    }
     if (preg_match('~^https?://~i', $url)) return $image ? safe_image($url) : safe_link($url);
     if (preg_match('~^[a-z][a-z0-9+.-]*:~i', $url) || str_starts_with($url, '#') || $base === '') return '';
     $origin = parse_url($base);
