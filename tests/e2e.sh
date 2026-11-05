@@ -147,7 +147,7 @@ curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" http://127.0.0.1:8099/a
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'ci-demo'
 before_import=$(php -r 'require "app/bootstrap.php"; echo database()->query("SELECT COUNT(*) FROM guides")->fetchColumn();')
 response=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
-  --data-urlencode 'html=<article><h2>操作</h2><p>点击按钮<img src="https://example.org/a.png"></p><p>扫码<img data-src="https://example.org/b.png"></p></article>' \
+  --data-urlencode 'html=<article><h2>操作</h2><p>点击按钮<img src="/uploads/ci-fixtures/a.png"></p><p>扫码<img data-src="/uploads/ci-fixtures/b.png"></p></article>' \
   http://127.0.0.1:8099/admin/import/generate)
 php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 || !str_contains($j["html"], "<h2") || substr_count($j["html"], "<img ") !== 2 || str_contains($j["html"], "<script") || str_contains($j["html"], "javascript:")) exit(1);' "$response"
 after_import=$(php -r 'require "app/bootstrap.php"; echo database()->query("SELECT COUNT(*) FROM guides")->fetchColumn();')
@@ -188,7 +188,7 @@ test "$private" = "404"
 echo 'HowHub diagnostics e2e passed: admin / filter / export / CSRF / no client secrets / private storage'
 # Streaming endpoints must emit multiple incremental delta frames and exactly one complete event.
 stream=$(curl -fsSN --max-time 30 -b "$jar" --data-urlencode "csrf_token=$token" \
-  --data-urlencode 'html=<h2>扫码教程</h2><p>第一步<img src="https://example.org/a.png"></p><p>第二步<img src="https://example.org/b.png"></p>' \
+  --data-urlencode 'html=<h2>扫码教程</h2><p>第一步<img src="/uploads/ci-fixtures/a.png"></p><p>第二步<img src="/uploads/ci-fixtures/b.png"></p>' \
   http://127.0.0.1:8099/admin/import/generate/stream)
 STREAM_DATA="$stream" php -r '
 $s=getenv("STREAM_DATA");
