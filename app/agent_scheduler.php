@@ -36,7 +36,14 @@ function agent_tick(PDO $pdo, ?callable $fixture = null, ?int $now = null): arra
             }
             return ['source'=>$source['origin'],'action'=>'evaluate']+$result;
         }
-        $result=agent_discover($pdo,$source,$fixture);
+        $feedQuery=$pdo->prepare("SELECT * FROM agent_feeds WHERE source_id=? AND status='queued' ORDER BY id LIMIT 1");
+        $feedQuery->execute([$source['id']]);
+        $nested=$feedQuery->fetch();
+        $result=agent_discover($pdo,$source,$fixture,$nested ? $nested['url'] : '');
+        if ($nested && in_array($result['status'],['discovered','blocked','error'],true)) {
+            $pdo->prepare("UPDATE agent_feeds SET status=? WHERE id=?")
+                ->execute([$result['status']==='discovered'?'done':'skipped',$nested['id']]);
+        }
         if ($result['status']==='cooldown') {
             $pdo->prepare('UPDATE agent_sources SET next_fetch=MAX(next_fetch,?) WHERE id=?')
                 ->execute([$now+3600,$source['id']]);
