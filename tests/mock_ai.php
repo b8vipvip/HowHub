@@ -60,6 +60,8 @@ if ($path === '/v1/chat/completions') {
     if (str_contains($input, '[[IMAGE_1]]')) $result .= '<figure>[[IMAGE_1]]</figure>';
     $result .= '<h2>第二步</h2><p>扫码绑定</p>';
     if (str_contains($input, '[[IMAGE_2]]')) $result .= '<figure>[[IMAGE_2]]</figure>';
+    if (str_contains($input, '[[LINK_1]]')) $result .= '<p>原文参考：[[LINK_1]]</p>';
+    if (str_contains($input, '[[LINK_2]]')) $result .= '<p>其他资料：[[LINK_2]]</p>';
     $result .= '<script>alert(1)</script><a href="javascript:alert(1)">不安全链接</a>';
     mock_reply($result, $stream);
     exit;
