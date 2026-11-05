@@ -118,6 +118,11 @@ function agent_normalize_url(string $url): string
         throw new InvalidArgumentException('候选页面仅支持 HTTPS');
     }
     $path = $p['path'] ?? '/';
+    // Avoid path normalization mismatches between robots checks and HTTP servers.
+    // Percent-encoded slashes, backslashes and dot segments can bypass path rules.
+    if (preg_match('~(?:^|/)(?:\.{1,2}|%2e(?:%2e)?)(?:/|$)|%(?:2f|5c|00)|\\\\~i', $path)) {
+        throw new InvalidArgumentException('来源路径包含可绕过 robots 匹配的特殊编码');
+    }
     $params = [];
     if (isset($p['query'])) {
         parse_str($p['query'], $params);
