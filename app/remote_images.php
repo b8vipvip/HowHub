@@ -150,6 +150,7 @@ function media_store_import_bytes(PDO $pdo, mixed $bytes): string
     try {
         $name = '网页导入图片-' . date('Ymd-His') . '.' . $ext;
         $asset = media_register($pdo, 'image', $relative, $name, $mime, strlen($bytes));
+        if (function_exists('url_import_record_asset')) url_import_record_asset($asset);
         return $asset['url'];
     } catch (Throwable $e) {
         @unlink($dest);
