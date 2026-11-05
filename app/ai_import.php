@@ -391,6 +391,11 @@ function import_safe_html_output(string $content, array $source): string
     if ($foundLinks[0] !== array_column($links, 'marker')) {
         throw new RuntimeException('AI 未按原顺序完整保留所有原文链接，已拒绝应用；编辑器内容未改变');
     }
+    preg_match_all('/\[\[(?:IMAGE|LINK)_\d+\]\]/', $source['content'], $sourceResources);
+    preg_match_all('/\[\[(?:IMAGE|LINK)_\d+\]\]/', $content, $outputResources);
+    if ($outputResources[0] !== $sourceResources[0]) {
+        throw new RuntimeException('AI 改变了原始图文或链接的相对顺序；未应用不完整结果');
+    }
     // Models may invent anchor destinations; only verified source markers can
     // create a clickable link in the resulting article.
     $content = preg_replace('~</?a\b[^>]*>~iu', '', $content) ?? $content;
