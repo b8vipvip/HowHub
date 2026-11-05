@@ -660,9 +660,10 @@
         }
         const failed = Number(result.failed_count || 0);
         const localized = Number(result.localized_count || 0);
+        const existing = Number(result.already_local_count || 0);
         const warnings = [...(result.import_warnings || []), ...(result.transfer_errors || [])].join('；');
         urlImportStatus.textContent =
-          `已导入 ${result.source_kind || 'webpage'}：${result.image_count || 0} 张图片、${result.link_count || 0} 个链接，转存成功 ${localized} 张、失败 ${failed} 张。` +
+          `已导入 ${result.source_kind || 'webpage'}：${result.image_count || 0} 张图片、${result.link_count || 0} 个链接；本站已有 ${existing} 张、外链转存 ${localized} 张、失败 ${failed} 张。` +
           (warnings ? ' 提示：' + warnings : '') +
           ' 仅填入编辑器，尚未保存。';
         messageText(failed ? '链接导入完成，但部分图片未转存，请检查警告后手动保存。' : '链接分析与导入完成，请预览并自行保存。', failed > 0);
