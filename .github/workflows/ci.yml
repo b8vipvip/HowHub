@@ -26,6 +26,8 @@ jobs:
         run: php tests/universal_import.php
       - name: URL and video import tests
         run: php tests/url_import.php
+      - name: Compliant discovery agent tests
+        run: php tests/agent.php
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
       - name: Verified update and rollback integration test
