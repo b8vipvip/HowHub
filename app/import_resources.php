@@ -14,10 +14,12 @@ function import_image_candidates(DOMElement $node): array
         if ($node->hasAttribute($key)) array_push($urls, ...import_srcset($node->getAttribute($key)));
     }
     if ($node->hasAttribute('src')) $urls[] = $node->getAttribute('src');
-    if (strtolower($node->tagName) === 'img' && $node->parentNode instanceof DOMElement &&
-        strtolower($node->parentNode->tagName) === 'picture') {
-        foreach ($node->parentNode->childNodes as $child) {
-            if (!$child instanceof DOMElement || strtolower($child->tagName) !== 'source') continue;
+    // PHP libxml's HTML4 parser can nest <img> inside an HTML5 <source>.
+    // Search the closest picture ancestor and all source descendants instead.
+    $picture = $node->parentNode;
+    while ($picture instanceof DOMElement && strtolower($picture->tagName) !== 'picture') $picture = $picture->parentNode;
+    if (strtolower($node->tagName) === 'img' && $picture instanceof DOMElement) {
+        foreach ($picture->getElementsByTagName('source') as $child) {
             foreach (['srcset','data-srcset'] as $key) {
                 if ($child->hasAttribute($key)) array_push($urls, ...import_srcset($child->getAttribute($key)));
             }
