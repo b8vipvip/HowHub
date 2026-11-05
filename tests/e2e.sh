@@ -9,6 +9,7 @@ for attempt in $(seq 1 30); do
   sleep .25
 done
 curl -fsS http://127.0.0.1:8099/healthz | grep -q '"ok":true'
+curl -fsS http://127.0.0.1:8099/agent | grep -q 'HowHubDiscoveryBot'
 # A site under maintenance must not accept new PHP requests.
 touch storage/.maintenance
 maintenance_status=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/healthz)
