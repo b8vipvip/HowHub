@@ -21,7 +21,7 @@ function import_walk(DOMNode $node, array &$state, string $imageLink = ''): void
         return;
     }
     $tag = strtolower($node->tagName);
-    if (in_array($tag, ['iframe','canvas','video','audio','svg','object','embed'], true)) {
+    if (in_array($tag, ['iframe','canvas','video','audio','svg','object','embed','noscript','template'], true)) {
         $state['unsupported'][$tag] = ($state['unsupported'][$tag] ?? 0) + 1;
         return;
     }
@@ -33,6 +33,8 @@ function import_walk(DOMNode $node, array &$state, string $imageLink = ''): void
         $raw = $node->getAttribute('href');
         $url = import_resolve_url($raw, $state['base']);
         if ($node->getElementsByTagName('img')->length > 0) {
+            if ($raw !== '' && $url === '' && !str_starts_with($raw, '#') &&
+                !preg_match('~^(?:javascript|data|mailto|tel):~i', $raw)) $state['missing_links']++;
             foreach ($node->childNodes as $child) import_walk($child, $state, $url);
             return;
         }
