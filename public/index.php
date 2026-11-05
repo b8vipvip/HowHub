@@ -328,13 +328,14 @@ if ($path === '/admin/import/clean' && $method === 'POST') {
 
 // POST-based SSE is intentional: the source HTML and CSRF token must never appear in a GET URL.
 // A failed or cancelled generation never writes a partial article.
-if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/stream'], true) && $method === 'POST') {
+if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/stream', '/admin/import/url/stream'], true) && $method === 'POST') {
     $isOptimize = $path === '/admin/guides/optimize/stream';
-    $action = $isOptimize ? 'optimize_stream' : 'html_import_stream';
+    $isUrlImport = $path === '/admin/import/url/stream';
+    $action = $isOptimize ? 'optimize_stream' : ($isUrlImport ? 'url_import_stream' : 'html_import_stream');
     // Authentication is checked globally above; verify CSRF before opening the stream.
     check_csrf();
-    $windowKey = $isOptimize ? 'ai_optimize_attempts' : 'ai_import_attempts';
-    $limit = $isOptimize ? 6 : 10;
+    $windowKey = $isOptimize ? 'ai_optimize_attempts' : ($isUrlImport ? 'ai_url_attempts' : 'ai_import_attempts');
+    $limit = $isOptimize ? 6 : ($isUrlImport ? 5 : 10);
     $history = array_values(array_filter($_SESSION[$windowKey] ?? [], static fn($t) => is_int($t) && $t > time() - 600));
     if (count($history) >= $limit) {
         http_response_code(429);
@@ -374,6 +375,20 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             if (connection_aborted()) exit;
             $emit('status', ['text'=>'正在校验 HTML、图片和链接…']);
             diag_event('info', 'ai', $action, 'success', ['count'=>$result['image_count']]);
+            $emit('complete', ['ok'=>true] + $result);
+        } elseif ($isUrlImport) {
+            $sourceUrl = (string)($_POST['url'] ?? '');
+            $source = url_import_prepare($pdo, $sourceUrl, $stage);
+            if (connection_aborted()) exit;
+            $emit('status', ['text'=>'已获取来源内容，正在分析可用教程步骤与素材…']);
+            $result = url_import_generate($source, $delta, $stage);
+            if (connection_aborted()) exit;
+            $emit('status', ['text'=>'AI 生成通过验证，正在转存原网页图片…']);
+            $result = array_merge($result, media_localize_html($pdo, $result['html'], $stage));
+            if (connection_aborted()) exit;
+            diag_event('info','url_import','generate', $result['failed_count'] ? 'partial' : 'success', [
+                'kind'=>$result['source_kind'],'images'=>$result['image_count'],
+                'localized'=>$result['localized_count'],'failed'=>$result['failed_count']]);
             $emit('complete', ['ok'=>true] + $result);
         } else {
             $source = import_prepare_source((string)($_POST['html'] ?? ''), (string)($_POST['source_url'] ?? ''));
