@@ -112,6 +112,7 @@ echo 'HowHub e2e passed: homepage / guide / search / admin / editor / media / CS
 # AI settings and cross-site paste are admin-only and CSRF-protected.
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'AI 供应商'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'ai-source-html'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'url-import-generate'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-toggle-source'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-preview-dialog'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-ai-optimize'
@@ -153,6 +154,48 @@ php -r '$j=json_decode($argv[1],true); if (!$j["ok"] || $j["image_count"]!==2 ||
 after_import=$(php -r 'require "app/bootstrap.php"; echo database()->query("SELECT COUNT(*) FROM guides")->fetchColumn();')
 test "$before_import" = "$after_import"
 echo 'HowHub mock chat2api e2e passed: encrypted config / model discovery / raw HTML to editor / no database writes'
+
+# A live admin request must reject private-network URL fetching before calling AI.
+private_link=$(curl -fsSN --max-time 10 -b "$jar" --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'url=http://127.0.0.1:8100/secret' \
+  http://127.0.0.1:8099/admin/import/url/stream)
+echo "$private_link" | grep -q 'event: error'
+if echo "$private_link" | grep -q 'event: complete'; then
+  echo 'Unsafe URL was accepted by the import endpoint' >&2; exit 1
+fi
+# The same AI provider must classify the fetched article before rendering HTML.
+php <<'PHP'
+<?php
+require 'app/bootstrap.php';
+$article = '<article><h2>电视绑定操作教程</h2>'
+    . '<p>第一步打开设置并选择网络连接选项。</p>'
+    . '<p>第二步根据提示登录账号并点击确认绑定。</p>'
+    . '<p>第三步检查屏幕状态，验证绑定是否已经完成。</p></article>';
+$fixture = static fn(string $url): array => [
+    'status'=>200,'body'=>$article,'headers'=>['content-type'=>'text/html'],
+];
+$source = url_import_prepare(database(), 'https://docs.example.com/guide', null, $fixture);
+$result = url_import_generate($source);
+if (!str_contains($result['html'], 'https://docs.example.com/guide')
+    || !str_contains($result['html'], '<h2')
+    || $result['source_kind'] !== 'webpage'
+    || $result['suggested_title'] === '') throw new RuntimeException('URL AI 导入未完成');
+$notGuide = '<article><h2>CI_NOT_GUIDE 大促广告</h2>'
+    . '<p>今日商品促销活动，不包括任何实际操作步骤或教学内容。</p>'
+    . '<p>仅展示报价、优惠、型号和宣传信息，没有任何使用方法。</p></article>';
+$fixtureBad = static fn(string $url): array => [
+    'status'=>200,'body'=>$notGuide,'headers'=>['content-type'=>'text/html'],
+];
+$badSource = url_import_prepare(database(), 'https://docs.example.com/ads', null, $fixtureBad);
+try {
+    url_import_generate($badSource);
+    throw new LogicException('非教程广告被允许导入');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), '不属于')) throw $e;
+}
+PHP
+echo 'HowHub URL AI e2e passed: admin CSRF / SSRF / model classification / non-guide refusal / HTML result'
+
 # Optional source page URL resolves relative text links without fetching the page.
 linked=$(curl -fsS -b "$jar" --data-urlencode "csrf_token=$token" \
   --data-urlencode 'source_url=https://docs.example.com/guide/start.html' \
