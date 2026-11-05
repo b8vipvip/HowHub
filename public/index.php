@@ -386,6 +386,8 @@ if (in_array($path, ['/admin/guides/optimize/stream', '/admin/import/generate/st
             if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
             $emit('status', ['text'=>'AI 生成通过验证，正在转存原网页图片…']);
             $result = array_merge($result, media_localize_html($pdo, $result['html'], $stage));
+            $result['already_local_count'] = count(array_filter($source['images'],
+                static fn($image) => str_starts_with((string)$image['src'], '/uploads/')));
             if (connection_aborted()) { url_import_discard_assets($pdo); exit; }
             diag_event('info','url_import','generate', $result['failed_count'] ? 'partial' : 'success', [
                 'kind'=>$result['source_kind'],'images'=>$result['image_count'],
