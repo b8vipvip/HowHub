@@ -14,6 +14,8 @@ jobs:
           coverage: none
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Browser script syntax
+        run: node --check public/assets/site.js
       - name: Diagnostics unit tests
         run: php tests/diagnostics.php
       - name: Streaming parser tests
