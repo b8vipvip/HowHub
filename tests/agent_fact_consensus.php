@@ -45,6 +45,16 @@ try {
     if($state['status']!=='single_source_support' || $state['disabled_count']!==1)
         throw new RuntimeException('Disabled formerly trusted source still counted as live evidence');
     $pdo->prepare('UPDATE agent_sources SET enabled=1 WHERE id=?')->execute([$sources[1]]);
+    // A new second-pass assessment invalidates old source assessments,
+    // even if they fall inside the normal 30-day window.
+    $pdo->prepare('UPDATE agent_topic_quality SET checked_at=? WHERE idea_id=?')
+        ->execute([$now+1,$ideaId]);
+    $newAudit=agent_fact_consensus_for_idea($pdo,$ideaId,$now+2)[0];
+    if($newAudit['status']!=='expired_evidence' || $newAudit['expired_count']!==3) {
+        throw new RuntimeException('A revised editorial review reused out-of-date claim evaluations');
+    }
+    $pdo->prepare('UPDATE agent_topic_quality SET checked_at=? WHERE idea_id=?')
+        ->execute([$now,$ideaId]);
     set_setting('agent_fact_evidence_days','7');
     $pdo->prepare('UPDATE agent_fact_documents SET retrieved_at=? WHERE idea_id=?')
         ->execute([$now-9*86400,$ideaId]);
