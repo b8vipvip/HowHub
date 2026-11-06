@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS agent_topic_ideas (
 );
 CREATE INDEX IF NOT EXISTS agent_topic_queue ON agent_topic_ideas(status,id);
 CREATE INDEX IF NOT EXISTS agent_topic_guide ON agent_topic_ideas(guide_id);
+CREATE TABLE IF NOT EXISTS agent_topic_runs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ kind TEXT NOT NULL CHECK(kind IN ('article','image')),
+ idea_id INTEGER,
+ requested_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_topic_runs_recent ON agent_topic_runs(kind,requested_at);
 SQL);
 }
 
