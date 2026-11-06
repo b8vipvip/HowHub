@@ -21,9 +21,28 @@ function agent_tick(PDO $pdo, ?callable $fixture = null, ?int $now = null): arra
             }
         }
     }
+    $topicOnly=setting('agent_creation_mode','topic_only')==='topic_only';
+    if ($topicOnly && ($job=agent_topic_schedule($pdo,$now))!==null) return $job;
     $sources=$pdo->prepare('SELECT * FROM agent_sources WHERE enabled=1 AND blocked_until<=? AND next_fetch<=? ORDER BY next_fetch ASC,id ASC LIMIT 25');
     $sources->execute([$now,$now]);
     foreach ($sources->fetchAll() as $source) {
+        if ($topicOnly) {
+            // Legacy full-article and third-party media jobs are parked.
+            // Run only feeds/robots for article headings and questions.
+            $feedQuery=$pdo->prepare("SELECT * FROM agent_feeds WHERE source_id=? AND status='queued' ORDER BY id LIMIT 1");
+            $feedQuery->execute([$source['id']]);
+            $nested=$feedQuery->fetch();
+            $result=agent_discover($pdo,$source,$fixture,$nested ? $nested['url'] : '');
+            if ($nested && in_array($result['status'],['discovered','blocked','error'],true)) {
+                $pdo->prepare("UPDATE agent_feeds SET status=? WHERE id=?")
+                    ->execute([$result['status']==='discovered'?'done':'skipped',$nested['id']]);
+            }
+            if ($result['status']==='cooldown') {
+                $pdo->prepare('UPDATE agent_sources SET next_fetch=MAX(next_fetch,?) WHERE id=?')
+                    ->execute([$now+3600,$source['id']]);
+            }
+            return ['source'=>$source['origin'],'action'=>'discover_headings']+$result;
+        }
         $media=$pdo->prepare("SELECT * FROM agent_media WHERE source_id=? AND status='queued' ORDER BY id LIMIT 1");
         $media->execute([$source['id']]);
         $pending=$media->fetch();
@@ -62,6 +81,7 @@ function agent_tick(PDO $pdo, ?callable $fixture = null, ?int $now = null): arra
         }
         return ['source'=>$source['origin'],'action'=>'discover']+$result;
     }
+    if ($topicOnly && ($job=agent_topic_schedule($pdo,$now,true))!==null) return $job;
     if (setting('agent_auto_source_enabled','0')==='1') {
         $research=agent_research_tick($pdo,null,null,$now);
         return ['action'=>'source_research']+$research;

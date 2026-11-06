@@ -39,7 +39,8 @@ function agent_feed_items(string $xml, string $feedUrl, string $origin): array
                 }
             }
             $title = $xpath->query('./*[local-name()="title"]',$item)?->item(0)?->textContent ?? '';
-            $items[] = ['url'=>$link,'title'=>$title];
+            $summary = $xpath->query('./*[local-name()="summary" or local-name()="description"]',$item)?->item(0)?->textContent ?? '';
+            $items[] = ['url'=>$link,'title'=>$title,'snippet'=>mb_substr($summary,0,1200)];
             if (count($items)>=40) break;
         }
     } else {
@@ -47,7 +48,8 @@ function agent_feed_items(string $xml, string $feedUrl, string $origin): array
         foreach ($nodes ?: [] as $item) {
             $link = $xpath->query('./*[local-name()="link"]',$item)?->item(0)?->textContent ?? '';
             $title = $xpath->query('./*[local-name()="title"]',$item)?->item(0)?->textContent ?? '';
-            $items[] = ['url'=>$link,'title'=>$title];
+            $summary = $xpath->query('./*[local-name()="summary" or local-name()="description"]',$item)?->item(0)?->textContent ?? '';
+            $items[] = ['url'=>$link,'title'=>$title,'snippet'=>mb_substr($summary,0,1200)];
             if (count($items)>=40) break;
         }
     }
@@ -56,6 +58,7 @@ function agent_feed_items(string $xml, string $feedUrl, string $origin): array
         $link = import_resolve_url($item['url'],$feedUrl);
         if ($link === '' || !agent_same_origin($link,$origin)) continue;
         $clean[] = ['url'=>$link,'title'=>mb_substr(trim($item['title']),0,180),
+            'snippet'=>mb_substr(trim((string)($item['snippet']??'')),0,1200),
             'kind'=>(string)($item['kind'] ?? 'page')];
     }
     return $clean;
@@ -85,6 +88,14 @@ function agent_discover(PDO $pdo, array $source, ?callable $fixture = null, stri
                 $ins=$pdo->prepare('INSERT OR IGNORE INTO agent_feeds(source_id,url,url_hash) VALUES (?,?,?)');
                 $ins->execute([$source['id'],$item['url'],hash('sha256',$item['url'])]);
                 $nested += $ins->rowCount();
+            } elseif (setting('agent_creation_mode','topic_only')==='topic_only') {
+                // Only titles from feed entries, never fetch their full article.
+                if ($item['title']!=='' && agent_topic_enqueue($pdo,$item['title'],$item['url'],
+                    'feed_title',(string)$source['industry'],(string)$source['region'],(int)$source['id'])) $added++;
+                foreach(agent_topic_questions((string)($item['snippet']??'')) as $question) {
+                    if (agent_topic_enqueue($pdo,$question,$item['url'],'feed_question',
+                        (string)$source['industry'],(string)$source['region'],(int)$source['id'])) $added++;
+                }
             } elseif (agent_enqueue($pdo,$source,$item['url'],$item['title'])) $added++;
             if ($added + $nested >= 20) break;
         }
