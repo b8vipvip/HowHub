@@ -126,6 +126,20 @@ function agent_topic_admin_section(PDO $pdo): void
         '<label>外部交叉核对线索<select name="search_enabled"><option value="0" '.(!$searchEnabled?'selected':'').'>关闭</option><option value="1" '.($searchEnabled?'selected':'').'>启用（需 Brave Search API）</option></select></label>'.
         '<label>每日搜索线索次数<input type="number" name="searches" min="0" max="8" value="'.$searchDaily.'"></label>'.
         '<button class="button secondary" type="submit">保存审稿预算</button></form>';
+    $audioOn=setting('agent_original_audio_enabled','0')==='1';
+    $videoOn=setting('agent_original_video_enabled','0')==='1';
+    $audioLimit=min(8,max(0,(int)setting('agent_original_audio_daily','2')));
+    $videoLimit=min(8,max(0,(int)setting('agent_original_video_daily','2')));
+    echo '<h3>原创教程配音与字幕视频（可选）</h3><p class="muted">配音使用本站原创稿调用兼容 /audio/speech 的模型生成 MP3；视频用 FFmpeg + 中文 Noto 字体把原创标题与步骤合成为 10–25 秒的 MP4 幻灯片，可以合入已有原创配音。没有真实设备画面，不访问第三方素材。两项均默认关闭，文件通过本站附件链接下载。</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_media_settings">'.
+        '<label>原创配音<select name="audio_enabled"><option value="0" '.(!$audioOn?'selected':'').'>关闭</option><option value="1" '.($audioOn?'selected':'').'>新教程创建 MP3</option></select></label>'.
+        '<label>原创短视频<select name="video_enabled"><option value="0" '.(!$videoOn?'selected':'').'>关闭</option><option value="1" '.($videoOn?'selected':'').'>字幕 MP4 幻灯片</option></select></label>'.
+        '<label>TTS 模型 ID<input name="tts_model" maxlength="100" value="'.h(setting('agent_original_tts_model','tts-1')).'"></label>'.
+        '<label>音色 ID<input name="voice" maxlength="40" value="'.h(setting('agent_original_tts_voice','alloy')).'"></label>'.
+        '<label>每日配音次数<input name="audio_daily" type="number" min="0" max="8" value="'.$audioLimit.'"></label>'.
+        '<label>每日视频次数<input name="video_daily" type="number" min="0" max="8" value="'.$videoLimit.'"></label>'.
+        '<button class="button secondary" type="submit">保存配音/视频设置</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     foreach($records as $item) {
