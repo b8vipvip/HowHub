@@ -154,3 +154,12 @@ a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}b
 .reader-clean .reader-article>.article-content{padding-top:0}
 .reader-clean .article-content>h2:first-child,.reader-clean .article-content>h3:first-child{margin-top:20px}
 @media(max-width:700px){.reader-clean .article-heading{padding-bottom:2px}}
+
+/* Licensed educational formulas, simplified flowcharts and source provenance */
+.article-content .hh-source-attribution{margin:0 0 1.6rem;padding:1rem 1.2rem;border-left:3px solid #6e83ab;background:#f3f6fc;color:#3f526f;border-radius:8px;font-size:.93rem}
+.article-content .hh-source-attribution p{margin:.35rem 0;line-height:1.65}
+.article-content math{display:block;margin:1.1rem auto;font-size:1.15em;overflow-x:auto;max-width:100%}
+.article-content .hh-flow-preview{margin:1rem 0;padding:1rem;border:1px solid #dde3ee;border-radius:12px;background:#f8faff}
+.article-content .hh-flow-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center}
+.article-content .hh-flow-node{padding:7px 12px;border:1px solid #a5b5d8;border-radius:8px;background:#fff;color:#283f70;font-weight:600}
+.article-content .hh-flow-arrow{font-size:22px;color:#64799e}

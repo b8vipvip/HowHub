@@ -115,6 +115,7 @@ curl -fsS -b "$jar" http://127.0.0.1:8099/admin/ai-settings | grep -q 'AI 供应
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'ai-source-html'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'url-import-generate'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/agent | grep -q '内容发现 Agent'
+curl -fsS -b "$jar" http://127.0.0.1:8099/admin/agent | grep -q 'AI 自动寻找国内外知识来源网站'
 agent_auth=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/admin/agent)
 test "$agent_auth" = '303'
 agent_csrf=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'action=global&enabled=1' http://127.0.0.1:8099/admin/agent/action)

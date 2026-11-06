@@ -9,6 +9,18 @@ function agent_tick(PDO $pdo, ?callable $fixture = null, ?int $now = null): arra
 {
     $now ??= time();
     if (setting('agent_enabled','0')!=='1') return ['status'=>'disabled'];
+    // Guarantee occasional source research without starving enabled sites.
+    // A research call is still one tick, uses provider budgets and never crawls
+    // the suggested domains. Avoid repeated idle research every 5 minutes.
+    if (setting('agent_auto_source_enabled','0')==='1') {
+        $lastRun=(int)$pdo->query('SELECT MAX(created_at) FROM agent_research_runs')->fetchColumn();
+        if ($lastRun===0 || $lastRun<=$now-21600) {
+            $research=agent_research_tick($pdo,null,null,$now);
+            if (in_array($research['status'],['proposed','error'],true)) {
+                return ['action'=>'source_research']+$research;
+            }
+        }
+    }
     $sources=$pdo->prepare('SELECT * FROM agent_sources WHERE enabled=1 AND blocked_until<=? AND next_fetch<=? ORDER BY next_fetch ASC,id ASC LIMIT 25');
     $sources->execute([$now,$now]);
     foreach ($sources->fetchAll() as $source) {
@@ -49,6 +61,10 @@ function agent_tick(PDO $pdo, ?callable $fixture = null, ?int $now = null): arra
                 ->execute([$now+3600,$source['id']]);
         }
         return ['source'=>$source['origin'],'action'=>'discover']+$result;
+    }
+    if (setting('agent_auto_source_enabled','0')==='1') {
+        $research=agent_research_tick($pdo,null,null,$now);
+        return ['action'=>'source_research']+$research;
     }
     return ['status'=>'idle','message'=>'所有来源均在冷却期或未启用'];
 }
