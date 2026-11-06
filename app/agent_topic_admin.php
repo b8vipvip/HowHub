@@ -33,6 +33,40 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_ai_video_settings') {
+        $base=trim((string)($post['base_url']??''));
+        $model=trim((string)($post['model']??''));
+        $key=trim((string)($post['api_key']??''));
+        $enabled=($post['enabled']??'')==='1';
+        if ($base!=='' ) set_setting('agent_ai_video_base',ai_base_url($base));
+        if ($model!=='') {
+            if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:+-]{0,99}$/D',$model)) {
+                throw new InvalidArgumentException('视频模型 ID 不合法');
+            }
+            set_setting('agent_ai_video_model',$model);
+        }
+        if ($key!=='') {
+            if (strlen($key)>4096 || preg_match('/[\\x00-\\x1f]/',$key)) {
+                throw new InvalidArgumentException('视频供应商 API Key 格式不合法');
+            }
+            set_setting('agent_ai_video_key_cipher',ai_encrypt($key));
+        }
+        set_setting('agent_ai_video_request_format',($post['format']??'multipart')==='json'?'json':'multipart');
+        set_setting('agent_ai_video_daily',(string)min(4,max(0,(int)($post['daily']??1))));
+        if ($enabled) agent_ai_video_config();
+        set_setting('agent_ai_video_enabled',$enabled?'1':'0');
+        return '已保存异步 AI 视频供应商：只对新创建的原创教程生效；正式视频 API 需供应商实际支持';
+    }
+    if ($action==='topic_ai_video_skip') {
+        $pdo->prepare("UPDATE agent_ai_video_jobs SET status='skipped',error='管理员停止本地轮询'
+            WHERE idea_id=? AND status IN ('queued','running','ready','failed')")->execute([$id]);
+        return '已停止本地视频任务；如果远端已经创建任务，仍可能计费，请到供应商后台检查';
+    }
+    if ($action==='topic_ai_video_retry') {
+        $pdo->prepare("UPDATE agent_ai_video_jobs SET status=CASE WHEN remote_id='' THEN 'queued' ELSE 'running' END,
+            next_check=0,error='' WHERE idea_id=? AND status='failed'")->execute([$id]);
+        return '已恢复失败任务；已有远端 ID 时仅继续查询，不会重复付费创建任务';
+    }
     if ($action==='topic_media_settings') {
         $model=trim((string)($post['tts_model']??'tts-1'));
         $voice=trim((string)($post['voice']??'alloy'));
@@ -156,6 +190,25 @@ function agent_topic_admin_section(PDO $pdo): void
         '<label>每日配音次数<input name="audio_daily" type="number" min="0" max="8" value="'.$audioLimit.'"></label>'.
         '<label>每日视频次数<input name="video_daily" type="number" min="0" max="8" value="'.$videoLimit.'"></label>'.
         '<button class="button secondary" type="submit">保存配音/视频设置</button></form>';
+    $videoAIOn=setting('agent_ai_video_enabled','0')==='1';
+    $videoAIBase=setting('agent_ai_video_base','');
+    $videoAIModel=setting('agent_ai_video_model','');
+    $videoAIKey=setting('agent_ai_video_key_cipher','')!=='';
+    $videoAIDaily=min(4,max(0,(int)setting('agent_ai_video_daily','1')));
+    $usedAI=$pdo->prepare('SELECT COUNT(*) FROM agent_ai_video_budget WHERE created_at>?');
+    $usedAI->execute([time()-86400]);
+    echo '<h3>真实 AI 视频模型（可选，默认关闭）</h3>';
+    echo '<p class="muted">支持第三方供应商提供的异步兼容接口 POST /v1/videos、GET /v1/videos/{id}、GET /v1/videos/{id}/content。请确认供应商实际支持。OpenAI 官方旧 Sora Videos API 已于 2026-09-24 关闭，不能使用已停服的 sora-2 作为默认模型。每篇只创建一次付费任务，轮询、下载和导入本站媒体库分步完成；失败不会无限自动重试。</p>';
+    echo '<p class="muted">过去 24 小时创建任务：'.(int)$usedAI->fetchColumn().'/'.$videoAIDaily.'；已配置密钥：'.($videoAIKey?'是':'否').'。注意可能按秒计费，建议先设为每日 1 个任务。</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_ai_video_settings">'.
+        '<label>启用异步 AI 原创视频<select name="enabled"><option value="0" '.(!$videoAIOn?'selected':'').'>关闭</option><option value="1" '.($videoAIOn?'selected':'').'>仅对新原创文章开启</option></select></label>'.
+        '<label>视频供应商 /v1 地址<input name="base_url" maxlength="2048" value="'.h($videoAIBase).'" placeholder="https://provider.example/v1"></label>'.
+        '<label>视频模型 ID<input name="model" maxlength="100" value="'.h($videoAIModel).'" placeholder="供应商实际提供的模型 ID"></label>'.
+        '<label>视频独立 API Key<input type="password" autocomplete="new-password" name="api_key" maxlength="4096" placeholder="'.($videoAIKey?'已加密保存，留空不更改':'输入供应商的密钥').'"></label>'.
+        '<label>创建任务的请求格式<select name="format"><option value="multipart" '.(setting('agent_ai_video_request_format','multipart')==='multipart'?'selected':'').'>multipart 表单</option><option value="json" '.(setting('agent_ai_video_request_format','multipart')==='json'?'selected':'').'>JSON</option></select></label>'.
+        '<label>每日付费视频任务上限<input type="number" name="daily" min="0" max="4" value="'.$videoAIDaily.'"></label>'.
+        '<button class="button secondary" type="submit">保存 AI 视频配置</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
