@@ -87,7 +87,11 @@ function agent_fact_model_verdict(string $claim,array $document,?callable $ai=nu
     ]);
     if(is_string($raw)) {
         if(strlen($raw)>10000) throw new RuntimeException('事实审稿返回内容过大');
-        $raw=json_decode(trim($raw),true);
+        $raw=trim($raw);
+        if (str_starts_with($raw,chr(96).chr(96).chr(96))) {
+            $raw=preg_replace('/^.{3}(?:json)?\\s*(.*?)\\s*.{3}$/su','$1',$raw)??$raw;
+        }
+        $raw=json_decode($raw,true);
     }
     if(!is_array($raw)||!in_array($raw['verdict']??null,['supports','conflicts','unclear'],true)) {
         throw new RuntimeException('事实审稿没有返回可识别的判定');
