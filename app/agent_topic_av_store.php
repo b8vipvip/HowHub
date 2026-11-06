@@ -86,12 +86,13 @@ function agent_topic_generated_file(PDO $pdo,string $bytes,string $kind): string
     }
 }
 
-function agent_topic_av_append(PDO $pdo,int $id,string $kind,string $url): void
+function agent_topic_av_append(PDO $pdo,int $id,string $kind,string $url,string $source='slides'): void
 {
     if (!in_array($kind,['audio','video'],true)) throw new InvalidArgumentException('媒体类型无效');
-    $link=$kind==='audio'?'下载本站原创教程配音（MP3）':'下载本站原创知识演示视频（MP4）';
+    $link=$kind==='audio'?'下载本站原创教程配音（MP3）':($source==='generated'?'下载 AI 原创动作演示（MP4）':'下载本站原创知识演示视频（MP4）');
     $notice=$kind==='audio' ? 'AI 生成配音，请核对读音与表达' :
-        '根据原创文章合成的字幕演示，不是真实设备操作录像';
+        ($source==='generated'?'AI 视频模型生成的概念动画；可能存在不准确的动作，非真实操作录像，请人工核验':
+        '根据原创文章合成的字幕演示，不是真实设备操作录像');
     $query=$pdo->prepare('SELECT html FROM agent_topic_ideas WHERE id=?');
     $query->execute([$id]);
     $html=(string)$query->fetchColumn();
