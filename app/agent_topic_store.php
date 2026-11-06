@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS agent_topic_runs (
 );
 CREATE INDEX IF NOT EXISTS agent_topic_runs_recent ON agent_topic_runs(kind,requested_at);
 SQL);
+    agent_topic_quality_tables($pdo);
 }
 
 function agent_topic_clean_title(string $raw): string
@@ -103,6 +104,12 @@ function agent_topic_approve(PDO $pdo,int $id): int
         $stmt->execute([$id]);
         $idea=$stmt->fetch();
         if (!$idea || $idea['guide_id']!==null) throw new RuntimeException('该原创选题尚未通过人工审核或已创建草稿');
+        $quality=$pdo->prepare('SELECT status FROM agent_topic_quality WHERE idea_id=?');
+        $quality->execute([$id]);
+        $qualityStatus=$quality->fetchColumn();
+        if ($qualityStatus!==false && !in_array($qualityStatus,['reviewed','waived'],true)) {
+            throw new RuntimeException('原创教程的独立质量审查尚未完成；请先完成检查或填写人工复核理由');
+        }
         if ($idea['asset_status']==='pending') throw new RuntimeException('原创插画任务未完成，请完成后再确认草稿');
         if (mb_strlen(trim(strip_tags($idea['html'])))<90) {
             throw new RuntimeException('文章正文内容不足，无法建立草稿');
