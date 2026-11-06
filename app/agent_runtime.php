@@ -84,6 +84,8 @@ function agent_runtime_report(PDO $pdo): array
         'ai_video_ready'=>"SELECT COUNT(*) FROM agent_ai_video_jobs WHERE status='ready'",
         'ai_video_failed'=>"SELECT COUNT(*) FROM agent_ai_video_jobs WHERE status='failed'",
         'original_documents'=>"SELECT COUNT(*) FROM agent_fact_documents",
+        'fact_auto_queued'=>"SELECT COUNT(*) FROM agent_fact_auto_tasks WHERE status='queued'",
+        'fact_auto_failed'=>"SELECT COUNT(*) FROM agent_fact_auto_tasks WHERE status='failed'",
     ] as $name=>$sql) {
         try {$report['queues'][$name]=(int)$pdo->query($sql)->fetchColumn();}
         catch(Throwable $e) {$report['queues'][$name]=null;}
@@ -95,6 +97,7 @@ function agent_runtime_report(PDO $pdo): array
         'audio'=>setting('agent_original_audio_enabled','0')==='1',
         'video'=>setting('agent_original_video_enabled','0')==='1',
         'crosscheck'=>setting('agent_fact_search_enabled','0')==='1',
+        'auto_primary_sources'=>setting('agent_fact_auto_enabled','0')==='1',
         'ai_video'=>setting('agent_ai_video_enabled','0')==='1',
     ];
     return $report;
