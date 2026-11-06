@@ -40,7 +40,7 @@ function agent_katex_mathml(string $tex): string
         if(file_put_contents($path,$tex,LOCK_EX)!==strlen($tex)) return '';
         try {
             $output=url_import_process([agent_katex_node_bin(),
-                HOWHUB_ROOT.'/bin/katex-mathml.cjs',$path],5,36000);
+                HOWHUB_ROOT.'/bin/katex-mathml.cjs',$path],10,36000);
         } catch(Throwable $e) {return '';}
         if(!preg_match('~<math\b[^>]*>[\s\S]*?</math>~u',$output,$match)) return '';
         $math=$match[0];
