@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS agent_ai_video_options (
  max_mb INTEGER NOT NULL DEFAULT 18
 );
 SQL);
+    $columns=$pdo->query('PRAGMA table_info(agent_ai_video_jobs)')->fetchAll();
+    $columns=array_column($columns,'name');
+    if(!in_array('lease_token',$columns,true)) {
+        $pdo->exec("ALTER TABLE agent_ai_video_jobs ADD COLUMN lease_token TEXT NOT NULL DEFAULT ''");
+    }
+    if(!in_array('lease_until',$columns,true)) {
+        $pdo->exec("ALTER TABLE agent_ai_video_jobs ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0");
+    }
 }
 
 function agent_ai_video_model(): string
@@ -221,12 +229,47 @@ function agent_ai_video_options(PDO $pdo,int $id): array
     return $options ?: ['seconds'=>4,'size'=>'1280x720','max_mb'=>18];
 }
 
+/**
+ * Exclusive per-video durable lease. The status predicate prevents callers
+ * with stale queue snapshots from submitting a second paid request. Each
+ * attempt uses a separate random token, so only its owner may release it.
+ * Crash recovery waits 15 minutes (longer than the bounded download).
+ */
+function agent_ai_video_claim(PDO $pdo,int $ideaId,string $status,int $now): ?string
+{
+    if(!in_array($status,['queued','running','ready'],true)) return null;
+    $token=bin2hex(random_bytes(16));
+    $q=$pdo->prepare("UPDATE agent_ai_video_jobs SET lease_token=?,lease_until=?
+        WHERE idea_id=? AND status=? AND lease_until<=?");
+    $q->execute([$token,$now+900,$ideaId,$status,$now]);
+    return $q->rowCount()===1?$token:null;
+}
+
+function agent_ai_video_release(PDO $pdo,int $ideaId,string $token): void
+{
+    $q=$pdo->prepare("UPDATE agent_ai_video_jobs SET lease_token='',lease_until=0
+        WHERE idea_id=? AND lease_token=?");
+    $q->execute([$ideaId,$token]);
+}
+
 function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixture=null,?int $now=null): array
 {
     $now??=time();$id=(int)$idea['id'];$state=(string)$job['status'];
     if($state==='off' || in_array($state,['complete','failed','skipped'],true) ||
         $idea['status']!=='review') return ['status'=>'idle'];
+    // A second cron/HTTP worker must not perform this job concurrently.
+    $lease=agent_ai_video_claim($pdo,$id,$state,$now);
+    if($lease===null) return ['status'=>'busy'];
     try {
+        // Another worker may have fetched the same status while the original
+        // task was still obtaining its remote ID. After acquiring the lease,
+        // NEVER trust the stale passed-in snapshot for billing or polling.
+        $current=$pdo->prepare('SELECT * FROM agent_ai_video_jobs WHERE idea_id=? AND lease_token=?');
+        $current->execute([$id,$lease]);
+        $latest=$current->fetch();
+        if(!$latest) throw new RuntimeException('视频任务执行权状态不一致');
+        $job=$latest;
+        $state=(string)$job['status'];
         $config=agent_ai_video_config();
         if($state==='queued') {
             if(!agent_ai_video_daily_budget($pdo,$id,$now)) return ['status'=>'budget_exhausted'];
@@ -297,9 +340,13 @@ function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixtu
         }
         return ['status'=>'idle'];
     }catch(Throwable $e) {
-        $pdo->prepare("UPDATE agent_ai_video_jobs SET status='failed',error=?,updated_at=? WHERE idea_id=?")
-            ->execute([mb_substr($e->getMessage(),0,250),$now,$id]);
+        $pdo->prepare("UPDATE agent_ai_video_jobs SET status='failed',error=?,updated_at=?
+            WHERE idea_id=? AND lease_token=?")
+            ->execute([mb_substr($e->getMessage(),0,250),$now,$id,$lease]);
         agent_event($pdo,'original_video_provider','error','视频供应商处理失败：'.get_class($e));
         return ['status'=>'failed','message'=>$e->getMessage()];
+    } finally {
+        // Safe even if a newer owner took over after an expired lease.
+        agent_ai_video_release($pdo,$id,$lease);
     }
 }
