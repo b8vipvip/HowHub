@@ -65,12 +65,12 @@ if(!str_contains($article['html'],'hh-graph-preview') ||
     !str_contains($article['html'],'<msubsup>')) {
     throw new RuntimeException('Original multi-format article dropped rich diagram/math previews');
 }
-$piecewise=agent_tex_mathml('\begin{cases}x^2&\text{当 x 大于零}\\0&\text{否则}\end{cases}');
+$piecewise=agent_tex_mathml('\begin{cases}x^2&\text{当 x 大于零}\\\\0&\text{否则}\end{cases}');
 if(!str_contains($piecewise,'<mtable>') || !str_contains($piecewise,'<mo>{</mo>') ||
     substr_count($piecewise,'<mtr>')!==2 || !str_contains($piecewise,'当 x 大于零')) {
     throw new RuntimeException('Piecewise MathML function did not render: '.mb_substr($piecewise,0,400));
 }
-$aligned=agent_tex_mathml('\begin{aligned}x&=1\\y&=x+2\end{aligned}');
+$aligned=agent_tex_mathml('\begin{aligned}x&=1\\\\y&=x+2\end{aligned}');
 if(substr_count($aligned,'<mtr>')!==2 || substr_count($aligned,'<mtd>')!==4) {
     throw new RuntimeException('Aligned multi-line equations did not render');
 }
