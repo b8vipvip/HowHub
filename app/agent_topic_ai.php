@@ -193,6 +193,7 @@ function agent_topic_process(PDO $pdo,array $idea,?callable $ai=null): array
         $pdo->prepare("INSERT INTO agent_topic_av(idea_id,audio_status,video_status) VALUES (?,?,?)
           ON CONFLICT(idea_id) DO UPDATE SET audio_status=excluded.audio_status,video_status=excluded.video_status,
             audio_url='',video_url='',notes=''")->execute([$id,$audio,$video]);
+        agent_ai_video_enqueue($pdo,$id);
         agent_event($pdo,'topic_ai','success','仅从选题独立创作；待审核，无外站正文和媒体');
         return ['status'=>'review','score'=>$result['score'],'image_pending'=>$imagePending];
     } catch (Throwable $e) {
