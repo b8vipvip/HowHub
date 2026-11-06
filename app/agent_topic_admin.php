@@ -239,6 +239,24 @@ function agent_topic_admin_section(PDO $pdo): void
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
             $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
+            if($modelVideo) {
+                echo '<p class="muted">AI 视频模型任务：'.h($modelVideo['status']).'；模型：'.h($modelVideo['model']).
+                    '；远端 ID：'.h($modelVideo['remote_id']).'；轮询次数：'.(int)$modelVideo['checks'].
+                    '；错误：'.h($modelVideo['error']).'</p>';
+                if(in_array($modelVideo['status'],['queued','running','ready','failed'],true)) {
+                    echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                        '<input type="hidden" name="action" value="topic_ai_video_skip">'.
+                        '<input type="hidden" name="id" value="'.$selected.'">'.
+                        '<button class="button secondary" type="submit">停止或跳过 AI 视频，允许人工审核正文</button></form>';
+                }
+                if($modelVideo['status']==='failed') {
+                    echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                        '<input type="hidden" name="action" value="topic_ai_video_retry">'.
+                        '<input type="hidden" name="id" value="'.$selected.'">'.
+                        '<button class="button secondary" type="submit">恢复失败的视频任务（有远端 ID 时不重建）</button></form>';
+                }
+            }
+
             if ($av) {
                 echo '<p class="muted">原创配音：'.h($av['audio_status']).'；视频：'.h($av['video_status']).'；'.h($av['notes']).'</p>';
                 foreach(['audio'=>'配音','video'=>'视频'] as $kind=>$label) {
