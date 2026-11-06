@@ -72,7 +72,14 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
         ->execute([$ideaId,$checked]);
     $claims=json_decode((string)$record['issues_json'],true)['claims']??[];
     $evidence=json_decode((string)$record['evidence_json'],true);
-    if(!is_array($claims) || !is_array($evidence)) return 0;
+    if(!is_array($claims) || !is_array($evidence)) {
+        $pdo->prepare('INSERT INTO agent_fact_auto_plans (idea_id,quality_checked_at,scanned_at,candidate_count)
+            VALUES(?,?,?,0) ON CONFLICT(idea_id) DO UPDATE SET
+            quality_checked_at=excluded.quality_checked_at,
+            scanned_at=excluded.scanned_at,candidate_count=0')
+            ->execute([$ideaId,$checked,time()]);
+        return 0;
+    }
     $sources=$pdo->query('SELECT id,origin FROM agent_sources WHERE enabled=1 ORDER BY id LIMIT 100')->fetchAll();
     // Even when sources are empty, persist the scan to avoid spinning every tick.
     if (!$sources) {
