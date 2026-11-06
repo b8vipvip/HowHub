@@ -61,6 +61,8 @@ function agent_attribution_notice(array $meta): string
     $site=mb_substr(trim((string)($meta['site_name']??'')),0,140);
     $author=mb_substr(trim((string)($meta['author']??'')),0,140);
     $published=mb_substr(trim((string)($meta['published']??'')),0,35);
+    $accessed=trim((string)($meta['accessed_at']??''));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D',$accessed)) $accessed='';
     $license=mb_substr(trim((string)($meta['license_label']??'')),0,140);
     $licenseUrl=safe_link((string)($meta['license_url']??''));
     $mode=($meta['mode']??'summary')==='licensed'?'licensed':'summary';
@@ -69,6 +71,7 @@ function agent_attribution_notice(array $meta): string
         '（<a href="'.h($url).'">查看原文</a>）</p>';
     if ($author!=='') $html.='<p><strong>原作者：</strong>'.h($author).'</p>';
     if ($published!=='') $html.='<p><strong>原文日期：</strong>'.h($published).'</p>';
+    if ($accessed!=='') $html.='<p><strong>获取日期：</strong>'.h($accessed).'</p>';
     if ($license!=='' || $licenseUrl!=='') {
         $html.='<p><strong>原站声明的许可：</strong>'.h($license!==''?$license:'查看许可详情');
         if ($licenseUrl!=='') $html.='（<a href="'.h($licenseUrl).'">查看许可文本</a>）';
