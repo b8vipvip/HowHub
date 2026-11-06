@@ -119,7 +119,7 @@ function safe_editor_style(string $style, string $tag): string
 function safe_editor_class(string $class, string $tag): string
 {
     $allowed = $tag === 'img' ? ['guide-img-small', 'guide-img-medium'] :
-        ['hh-note', 'hh-tip', 'hh-warning', 'hh-step', 'hh-lead', 'hh-accent', 'hh-highlight', 'hh-muted', 'hh-center', 'hh-source-attribution'];
+        ['hh-note', 'hh-tip', 'hh-warning', 'hh-step', 'hh-lead', 'hh-accent', 'hh-highlight', 'hh-muted', 'hh-center', 'hh-source-attribution', 'hh-flow-preview', 'hh-flow-row', 'hh-flow-node', 'hh-flow-arrow'];
     $classes = preg_split('/\s+/', trim($class)) ?: [];
     return implode(' ', array_slice(array_values(array_unique(array_intersect($classes, $allowed))), 0, 3));
 }
@@ -139,8 +139,8 @@ function sanitize_content(string $html): string
     if (!$root) {
         return '';
     }
-    $allowed = array_fill_keys(['p', 'h2', 'h3', 'h4', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'a', 'img', 'figure', 'figcaption', 'hr', 'br', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span'], true);
-    $blocked = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'svg', 'math', 'video', 'audio', 'input', 'button', 'textarea', 'select', 'template'];
+    $allowed = array_fill_keys(['p', 'h2', 'h3', 'h4', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'a', 'img', 'figure', 'figcaption', 'hr', 'br', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'math', 'mrow', 'mi', 'mn', 'mo', 'msup', 'msub', 'msubsup', 'mfrac', 'msqrt', 'mroot', 'mtext', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd'], true);
+    $blocked = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'svg', 'video', 'audio', 'input', 'button', 'textarea', 'select', 'template'];
     $walk = function (DOMNode $node) use (&$walk, $allowed, $blocked): void {
         foreach (iterator_to_array($node->childNodes) as $child) {
             if (!$child instanceof DOMElement) {
