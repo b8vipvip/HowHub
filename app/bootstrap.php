@@ -43,6 +43,7 @@ require_once __DIR__ . '/url_import_ai.php';
 require_once __DIR__ . '/agent_research_store.php';
 require_once __DIR__ . '/agent_source_research.php';
 require_once __DIR__ . '/agent_research_tick.php';
+require_once __DIR__ . '/agent_topic_quality.php';
 require_once __DIR__ . '/agent_topic_store.php';
 require_once __DIR__ . '/agent_topic_questions.php';
 require_once __DIR__ . '/agent_topic_ai.php';
