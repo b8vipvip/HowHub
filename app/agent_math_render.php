@@ -128,9 +128,15 @@ function agent_tex_matrix_mathml(string $tex): string
 function agent_tex_mathml(string $tex): string
 {
     $tex=trim($tex);
-    if ($tex==='' || strlen($tex)>1000 || !preg_match('//u',$tex)) return '';
+    if ($tex==='' || strlen($tex)>1900 || !preg_match('//u',$tex)) return '';
     if (str_starts_with($tex,'$$') && str_ends_with($tex,'$$')) $tex=substr($tex,2,-2);
-    elseif (str_starts_with($tex,'
+    elseif (str_starts_with($tex,'$') && str_ends_with($tex,'$')) $tex=substr($tex,1,-1);
+    $matrix=agent_tex_matrix_mathml($tex);
+    if ($matrix!=='') return $matrix;
+    // Expand only fixed paired delimiter markers, never arbitrary macros.
+    $tex=str_replace(['\left(','\right)','\left[','\right]','\left|','\right|'],
+        ['(',')','[',']','|','|'],$tex);
+    try {
         $i=0;
         $content=agent_math_sequence($tex,$i);
         if ($i!==strlen($tex) || $content==='') return '';
