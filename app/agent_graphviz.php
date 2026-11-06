@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS agent_diagram_images (
  idea_id INTEGER PRIMARY KEY REFERENCES agent_topic_ideas(id) ON DELETE CASCADE,
  source_sha256 TEXT NOT NULL,
  image_url TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'complete' CHECK(status IN ('complete','skipped','failed')),
  generated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agent_diagram_runs (
@@ -168,9 +169,9 @@ function agent_diagram_process(PDO $pdo,int $ideaId,?callable $renderer=null): a
     $definition=agent_diagram_source_from_html((string)$idea['html']);
     if($definition==='') return ['status'=>'not_supported'];
     $hash=hash('sha256',$definition);
-    $q=$pdo->prepare('SELECT image_url,source_sha256 FROM agent_diagram_images WHERE idea_id=?');
+    $q=$pdo->prepare('SELECT image_url,source_sha256,status FROM agent_diagram_images WHERE idea_id=?');
     $q->execute([$ideaId]);$existing=$q->fetch();
-    if($existing && $existing['source_sha256']===$hash) {
+    if($existing && $existing['source_sha256']===$hash && $existing['status']==='complete') {
         return ['status'=>'complete','url'=>$existing['image_url'],'reused'=>true];
     }
     $bytes=agent_diagram_png($definition,$renderer);
@@ -182,9 +183,10 @@ function agent_diagram_process(PDO $pdo,int $ideaId,?callable $renderer=null): a
     try {
         $pdo->prepare('UPDATE agent_topic_ideas SET html=? WHERE id=? AND status=?')
             ->execute([$html,$ideaId,'review']);
-        $pdo->prepare("INSERT INTO agent_diagram_images (idea_id,source_sha256,image_url,generated_at)
-            VALUES(?,?,?,?) ON CONFLICT(idea_id) DO UPDATE SET
-            source_sha256=excluded.source_sha256,image_url=excluded.image_url,generated_at=excluded.generated_at")
+        $pdo->prepare("INSERT INTO agent_diagram_images (idea_id,source_sha256,image_url,status,generated_at)
+            VALUES(?,?,?,'complete',?) ON CONFLICT(idea_id) DO UPDATE SET
+            source_sha256=excluded.source_sha256,image_url=excluded.image_url,status='complete',
+            generated_at=excluded.generated_at")
             ->execute([$ideaId,$hash,$url,time()]);
         $pdo->commit();
         return ['status'=>'complete','url'=>$url,'reused'=>false];
@@ -217,6 +219,16 @@ function agent_diagram_daily_reserve(PDO $pdo,int $ideaId,?int $now=null): bool
     }
 }
 
+/** Persist negative result to avoid charging CPU repeatedly for the same source. */
+function agent_diagram_record_failure(PDO $pdo,int $id,string $status): void
+{
+    if(!in_array($status,['skipped','failed'],true)) return;
+    $pdo->prepare("INSERT INTO agent_diagram_images(idea_id,source_sha256,image_url,status,generated_at)
+        VALUES(?,'','',?,?) ON CONFLICT(idea_id) DO UPDATE SET
+        image_url='',status=excluded.status,generated_at=excluded.generated_at")
+        ->execute([$id,$status,time()]);
+}
+
 function agent_diagram_next(PDO $pdo): ?array
 {
     if(setting('agent_diagram_auto_enabled','0')!=='1' || url_import_bin('dot')==='') return null;
@@ -231,8 +243,13 @@ function agent_diagram_next(PDO $pdo): ?array
     $id=$q->fetchColumn();
     if(!$id || !agent_diagram_daily_reserve($pdo,(int)$id)) return null;
     try {
-        return ['action'=>'diagram_png','topic_id'=>(int)$id]+agent_diagram_process($pdo,(int)$id);
+        $out=agent_diagram_process($pdo,(int)$id);
+        if(($out['status']??'')==='not_supported') {
+            agent_diagram_record_failure($pdo,(int)$id,'skipped');
+        }
+        return ['action'=>'diagram_png','topic_id'=>(int)$id]+$out;
     } catch(Throwable $e) {
+        agent_diagram_record_failure($pdo,(int)$id,'failed');
         agent_event($pdo,'diagram_png','error',get_class($e).' 图形渲染失败');
         return ['action'=>'diagram_png','topic_id'=>(int)$id,'status'=>'failed'];
     }
