@@ -17,7 +17,7 @@ function agent_topic_generate_json(array $idea, ?callable $ai = null): array
 如果需要真实测量、最新政策、设备专用参数、医学诊断/处方或其他不能验证的信息，要标记需核实，避免给出冒险的具体数值。
 内容要有实践价值，不能只是泛泛而谈。文本、表格、公式和流程图均为你独立原创的解释。
 返回且只返回一个 JSON 对象，字段：
-{"eligible":true,"score":85,"title":"重新润色的原创中文标题","summary":"100-250字原创摘要","sections":[{"heading":"章节标题","paragraphs":["独立原创的解释段落"],"steps":["清晰的步骤"],"table":{"headers":["项目","作用"],"rows":[["样例","具体说明"]]},"formula":"可选的简单 LaTeX 表达式，不要 $ 包裹","diagram":"可选的线性 Mermaid graph TD 源码"}],"faq":[{"question":"常见问题","answer":"独立解答"}],"image_prompt":"可选英文原创示意图提示词","issues":["需要审稿确认的事项"],"category":"行业类别"}
+{"eligible":true,"score":85,"title":"重新润色的原创中文标题","summary":"100-250字原创摘要","sections":[{"heading":"章节标题","paragraphs":["独立原创的解释段落"],"steps":["清晰的步骤"],"table":{"headers":["项目","作用"],"rows":[["样例","具体说明"]]},"formula":"可选的简单 LaTeX 表达式，不要 $ 包裹","diagram":"可选的 Mermaid graph TD 分支图或 mindmap 缩进树源码（必须保留换行和缩进）"}],"faq":[{"question":"常见问题","answer":"独立解答"}],"image_prompt":"可选英文原创示意图提示词","issues":["需要审稿确认的事项"],"category":"行业类别"}
 - 若不适合，eligible=false，简述 issues，sections 为空。
 - 文章每段不能引用来源，不能复制第三方媒体或要求下载别人的图片。
 - image_prompt 只用于教育概念插画，禁止假装是真实软件截图/测量结果。
@@ -46,6 +46,15 @@ function agent_topic_text(mixed $value,int $limit=1500): string
     if (!is_string($value)) return '';
     $value=trim(preg_replace('/\s+/u',' ',$value) ?? '');
     return mb_substr($value,0,$limit);
+}
+
+/** Preserve indentation: Mermaid mindmaps and branch graphs are structured data. */
+function agent_topic_diagram_source(mixed $value): string
+{
+    if (!is_string($value)) return '';
+    $value=str_replace(["\r\n","\r"],"\n",$value);
+    $value=preg_replace('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/','',$value)??'';
+    return mb_substr(trim($value),0,3500);
 }
 
 function agent_topic_render(array $data): array
@@ -117,9 +126,9 @@ function agent_topic_render(array $data): array
             if ($math!=='') $html.='<figure>'.$math.'<figcaption>公式示意</figcaption></figure>';
             $html.='<pre><code>'.h($tex).'</code></pre>';
         }
-        $diagram=agent_topic_text($section['diagram']??'',1800);
+        $diagram=agent_topic_diagram_source($section['diagram']??'');
         if ($diagram!=='') {
-            $preview=agent_mermaid_linear_preview($diagram);
+            $preview=agent_mermaid_diagram_preview($diagram);
             if ($preview!=='') $html.=$preview;
             $html.='<pre><code>'.h($diagram).'</code></pre>';
         }

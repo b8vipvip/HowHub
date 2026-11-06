@@ -34,6 +34,12 @@ jobs:
         run: php tests/agent_topic.php
       - name: Second-pass quality and original AV tests
         run: php tests/agent_quality_av.php
+      - name: Expanded diagram and MathML tests
+        run: php tests/agent_rich_diagrams.php
+      - name: Claim to indexed evidence safety tests
+        run: php tests/agent_claim_checks.php
+      - name: Agent runtime prerequisite diagnostics
+        run: php tests/agent_runtime.php && php bin/agent-check.php > /tmp/howhub-agent-check.json
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
       - name: Verified update and rollback integration test

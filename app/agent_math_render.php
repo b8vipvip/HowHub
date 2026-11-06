@@ -27,10 +27,22 @@ function agent_math_atom(string $s, int &$i, int $depth): string
             return '<mfrac>'.$up.$down.'</mfrac>';
         }
         if ($macro==='sqrt') return '<msqrt>'.agent_math_atom($s,$i,$depth+1).'</msqrt>';
+        if (in_array($macro,['text','mathrm','operatorname'],true)) {
+            if (($s[$i]??'')!=='{') throw new RuntimeException('数学文本宏缺少大括号');
+            $end=strpos($s,'}',$i+1);
+            if ($end===false || $end-$i>180) throw new RuntimeException('数学文本宏长度异常');
+            $value=substr($s,$i+1,$end-$i-1);
+            if ($value==='' || strpbrk($value,'\\{}')!==false) throw new RuntimeException('数学文本不允许嵌套指令');
+            $i=$end+1;
+            return '<mtext>'.h($value).'</mtext>';
+        }
         $names=['alpha'=>'α','beta'=>'β','gamma'=>'γ','delta'=>'δ','theta'=>'θ',
             'lambda'=>'λ','mu'=>'μ','pi'=>'π','sigma'=>'σ','omega'=>'ω','phi'=>'φ'];
         $operators=['times'=>'×','cdot'=>'·','leq'=>'≤','geq'=>'≥','neq'=>'≠',
-            'pm'=>'±','infty'=>'∞','to'=>'→'];
+            'pm'=>'±','infty'=>'∞','to'=>'→','sum'=>'∑','prod'=>'∏','int'=>'∫',
+            'lim'=>'lim','partial'=>'∂','nabla'=>'∇','approx'=>'≈','equiv'=>'≡',
+            'subseteq'=>'⊆','supseteq'=>'⊇','in'=>'∈','forall'=>'∀','exists'=>'∃',
+            'rightarrow'=>'→','leftarrow'=>'←','leftrightarrow'=>'↔','cdots'=>'⋯'];
         if (isset($names[$macro])) return '<mi>'.h($names[$macro]).'</mi>';
         if (isset($operators[$macro])) return '<mo>'.h($operators[$macro]).'</mo>';
         throw new RuntimeException('暂不支持的 TeX 公式指令');
@@ -80,12 +92,50 @@ function agent_math_sequence(string $s,int &$i,int $depth=0,bool $group=false): 
     return implode('',$output);
 }
 
+/** A restricted TeX matrix form, max 8x8, rendered as browser-native MathML. */
+function agent_tex_matrix_mathml(string $tex): string
+{
+    if (!preg_match('/^\\\\begin\{(matrix|pmatrix|bmatrix|vmatrix)\}([\s\S]{1,1800})\\\\end\{\1\}$/u',$tex,$m)) return '';
+    $rows=explode('\\\\',trim($m[2]));
+    if(count($rows)<1 || count($rows)>8) return '';
+    $content='<mtable>';$cols=null;
+    foreach($rows as $row) {
+        $cells=explode('&',$row);
+        if(count($cells)<1 || count($cells)>8 || ($cols!==null && $cols!==count($cells))) return '';
+        $cols=count($cells);
+        $content.='<mtr>';
+        foreach($cells as $cell) {
+            $cell=trim($cell);
+            if($cell==='') return '';
+            try {
+                $i=0;
+                $part=agent_math_sequence($cell,$i);
+                if($i!==strlen($cell) || $part==='') return '';
+            } catch(Throwable $e) {return '';}
+            $content.='<mtd><mrow>'.$part.'</mrow></mtd>';
+        }
+        $content.='</mtr>';
+    }
+    $content.='</mtable>';
+    $brackets=match($m[1]) {
+        'pmatrix'=>['(',')'],'bmatrix'=>['[',']'],'vmatrix'=>['|','|'],
+        default=>['',''],
+    };
+    return sanitize_content('<math><mrow>'.($brackets[0]!==''?'<mo>'.h($brackets[0]).'</mo>':'').
+        $content.($brackets[1]!==''?'<mo>'.h($brackets[1]).'</mo>':'').'</mrow></math>');
+}
+
 function agent_tex_mathml(string $tex): string
 {
     $tex=trim($tex);
-    if ($tex==='' || strlen($tex)>1000 || !preg_match('//u',$tex)) return '';
+    if ($tex==='' || strlen($tex)>1900 || !preg_match('//u',$tex)) return '';
     if (str_starts_with($tex,'$$') && str_ends_with($tex,'$$')) $tex=substr($tex,2,-2);
     elseif (str_starts_with($tex,'$') && str_ends_with($tex,'$')) $tex=substr($tex,1,-1);
+    $matrix=agent_tex_matrix_mathml($tex);
+    if ($matrix!=='') return $matrix;
+    // Expand only fixed paired delimiter markers, never arbitrary macros.
+    $tex=str_replace(['\left(','\right)','\left[','\right]','\left|','\right|'],
+        ['(',')','[',']','|','|'],$tex);
     try {
         $i=0;
         $content=agent_math_sequence($tex,$i);

@@ -96,6 +96,22 @@ function agent_topic_admin_section(PDO $pdo): void
     echo '<section class="admin-panel"><h2>原创选题 Agent（默认创作模式）</h2>';
     echo '<p class="muted">自动从搜索结果与 RSS/Atom 中提取标题/问题，不访问文章正文，也不使用他人的图片和视频。AI 重新拟题，从零生成教程步骤、表格、公式和流程图；原创图片需单独启用。网站 URL 仅保存在后台审计信息中，不显示在原创文章正文里。</p>';
     echo '<p>待写作：<strong>'.$pending.'</strong>　待审核：<strong>'.$review.'</strong>　原创图片：'.($enabled?'已启用':'关闭').'</p>';
+    echo '<p><a class="button secondary" href="/admin/agent?runtime_check=1">检测当前服务器的 Agent 环境与队列</a></p>';
+    if (($_GET['runtime_check']??'')==='1') {
+        $diagnostic=agent_runtime_report($pdo);
+        echo '<div class="admin-panel"><h3>当前运行环境（只读，无外部模型调用）</h3>';
+        echo '<p class="muted">PHP '.h($diagnostic['php']).'；模式：'.h($diagnostic['mode']).'；检查时间：'.h($diagnostic['server_time']).'</p>';
+        echo '<div class="responsive-table"><table><thead><tr><th>检查项</th><th>状态</th><th>说明</th></tr></thead><tbody>';
+        foreach($diagnostic['checks'] as $key=>$entry) {
+            echo '<tr><td>'.h($key).'</td><td>'.($entry['ok']?'可用':'待修复/可选').'</td><td>'.h($entry['message']).'</td></tr>';
+        }
+        echo '</tbody></table></div><p class="muted">任务队列：';
+        foreach($diagnostic['queues'] as $key=>$value) {
+            echo h($key).'：'.($value===null?'未取得':(int)$value).'　';
+        }
+        echo '</p><p>注意：此处没有真实调用 TTS、图像生成或视频模型；完成部署后仍需实机验证。</p></div>';
+    }
+
     $budgetArticles=min(24,max(1,(int)setting('agent_topic_article_daily','8')));
     $budgetImages=min(8,max(0,(int)setting('agent_topic_image_daily','2')));
     $count=$pdo->prepare('SELECT COUNT(*) FROM agent_topic_runs WHERE kind=? AND requested_at>?');
@@ -189,6 +205,28 @@ function agent_topic_admin_section(PDO $pdo): void
                 echo '<p class="muted">独立风险复核：'.h($qc['status']).' / '.h($qc['risk']).'。'.h($qc['model_notes']).'</p>';
                 foreach((array)($finding['issues']??[]) as $issue) echo '<p>风险问题：'.h((string)$issue).'</p>';
                 foreach((array)($finding['checklist']??[]) as $itemCheck) echo '<p>人工检查：'.h((string)$itemCheck).'</p>';
+                $claims=(array)($finding['claims']??[]);
+                if ($claims) {
+                    echo '<h4>逐条事实主张与证据线索（非事实认证）</h4>';
+                    foreach($claims as $claim) {
+                        if (!is_array($claim)) continue;
+                        $findingType=(string)($claim['finding']??'unverified');
+                        $stateLabel=match($findingType) {
+                            'corroborating_snippets'=>'多个不同站点摘要提供相近线索',
+                            'conflicting_snippets'=>'搜索摘要存在冲突',
+                            default=>'缺少可用佐证或有疑问',
+                        };
+                        echo '<p><strong>'.h((string)($claim['claim']??'')).'</strong><br><small>'.h($stateLabel).
+                            '；'.h((string)($claim['reason']??'')).'</small>';
+                        foreach((array)($claim['source_indexes']??[]) as $ref) {
+                            $i=(int)$ref-1;
+                            if (!isset($evidence[$i]['url'])) continue;
+                            $url=safe_link((string)$evidence[$i]['url']);
+                            if ($url!=='') echo ' <a href="'.h($url).'" target="_blank" rel="noopener noreferrer nofollow">索引线索 #'.(int)$ref.'</a>';
+                        }
+                        echo '</p>';
+                    }
+                }
                 if ($evidence) {
                     echo '<p class="muted">搜索索引交叉核对线索（未逐页验证，非事实证明）：</p>';
                     foreach(array_slice($evidence,0,5) as $entry) {
