@@ -272,9 +272,12 @@ function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixtu
         if($state==='ready') {
             $url=(string)($job['mp4_url']??'');
             if($url==='') {
-                $bytes=agent_ai_video_transport('download',['id'=>$remoteId],$fixture);
-                if(!is_string($bytes)) throw new RuntimeException('视频下载响应不是文件');
-                $url=agent_topic_generated_file($pdo,$bytes,'video');
+                $options=agent_ai_video_options($pdo,$id);
+                $maxMb=(int)$options['max_mb'];
+                $temp=agent_ai_video_receive_mp4($remoteId,$maxMb,$fixture);
+                try {
+                    $url=agent_ai_video_register_mp4($pdo,$temp,$maxMb);
+                } finally {@unlink($temp);}
                 // Save the local archive pointer FIRST. A later HTML update
                 // failure must never trigger another paid download or orphan
                 // the already stored local MP4.
