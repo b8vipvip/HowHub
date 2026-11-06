@@ -96,7 +96,16 @@ function agent_topic_av_append(PDO $pdo,int $id,string $kind,string $url): void
     $query->execute([$id]);
     $html=(string)$query->fetchColumn();
     if ($html==='') throw new RuntimeException('关联原创文章不存在');
-    $html.='<p><a href="'.h($url).'">'.h($link).'</a>（'.h($notice).'）</p>';
+    if (!preg_match('~^/file/([1-9][0-9]{0,12})$~D',$url,$match)) {
+        throw new RuntimeException('原创媒体地址不符合本站播放器规范');
+    }
+    $stream='/media/stream/'.$match[1];
+    $player=$kind==='video' ?
+        '<figure><video controls preload="metadata" playsinline src="'.h($stream).'"></video>'.
+        '<figcaption>'.h($notice).'</figcaption></figure>' :
+        '<figure><audio controls preload="metadata" src="'.h($stream).'"></audio>'.
+        '<figcaption>'.h($notice).'</figcaption></figure>';
+    $html.=$player.'<p><a href="'.h($url).'">'.h($link).'</a></p>';
     $pdo->prepare('UPDATE agent_topic_ideas SET html=? WHERE id=?')
         ->execute([sanitize_content($html),$id]);
 }
