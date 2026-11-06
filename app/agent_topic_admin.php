@@ -59,6 +59,14 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         set_setting('agent_fact_evidence_days',(string)$days);
         return '原始资料的有效性窗口已设置为 '.$days.' 天；超过有效期或来源被禁用的旧证据不再作为交叉支持';
     }
+    if ($action==='topic_fact_replan') {
+        if(setting('agent_fact_auto_enabled','0')!=='1') {
+            throw new RuntimeException('请先启用已批准来源的自动核查');
+        }
+        $pdo->prepare('DELETE FROM agent_fact_auto_plans WHERE idea_id=?')->execute([$id]);
+        $count=agent_fact_auto_plan($pdo,$id);
+        return '已根据现有已批准来源重新规划 '.(int)$count.' 条候选证据任务；具体访问仍须等待 robots 与站点冷却';
+    }
     if ($action==='topic_fact_auto_settings') {
         $enabled=($post['enabled']??'')==='1';
         $daily=min(8,max(0,(int)($post['daily']??2)));
@@ -347,6 +355,18 @@ function agent_topic_admin_section(PDO $pdo): void
             $qualityLookup->execute([$selected]);
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
+            $planQuery=$pdo->prepare('SELECT scanned_at,candidate_count FROM agent_fact_auto_plans WHERE idea_id=?');
+            $planQuery->execute([$selected]);$autoPlan=$planQuery->fetch();
+            if($autoPlan) echo '<p class="muted">最近受控来源规划：'.
+                h(date('Y-m-d H:i',(int)$autoPlan['scanned_at'])).
+                '；本轮新增候选：'.(int)$autoPlan['candidate_count'].
+                '。无匹配来源时不会每轮反复规划。</p>';
+            if($item['status']==='review' && $autoFactOn) {
+                echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                    '<input type="hidden" name="action" value="topic_fact_replan">'.
+                    '<input type="hidden" name="id" value="'.$selected.'">'.
+                    '<button class="button secondary" type="submit">重新评估已批准来源（不立即联网）</button></form>';
+            }
             $autoEvidence=agent_fact_auto_for_idea($pdo,$selected);
             if ($autoEvidence) {
                 echo '<h4>自动原文核验队列（只有已经启用的来源可访问）</h4>';
