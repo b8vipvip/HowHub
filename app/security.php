@@ -164,6 +164,7 @@ function sanitize_content(string $html): string
             }
             $href = $tag === 'a' ? safe_link($child->getAttribute('href')) : '';
             $src = $tag === 'img' ? safe_image($child->getAttribute('src')) : '';
+            $mediaSrc = in_array($tag,['video','audio'],true) ? $child->getAttribute('src') : '';
             $safeClass = safe_editor_class($child->getAttribute('class'), $tag);
             $safeStyle = safe_editor_style($child->getAttribute('style'), $tag);
             $alt = $tag === 'img' ? mb_substr($child->getAttribute('alt'), 0, 200) : '';
@@ -187,7 +188,6 @@ function sanitize_content(string $html): string
                 $child->setAttribute('loading', 'lazy');
             }
             if (in_array($tag,['video','audio'],true)) {
-                $mediaSrc=$child->getAttribute('src');
                 if (!preg_match('~^/media/stream/[1-9][0-9]{0,12}$~D',$mediaSrc)) {
                     // Never allow models to embed a third-party player or media.
                     $node->removeChild($child);continue;
