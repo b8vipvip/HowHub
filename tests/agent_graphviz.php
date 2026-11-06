@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
-$pdo=database();$id=0;$createdUrl='';
+$pdo=database();$id=0;$createdUrl='';$revisedUrl='';
 $old=setting('agent_diagram_auto_enabled','0');
 $oldDaily=setting('agent_diagram_daily','4');
 try {
@@ -49,6 +49,22 @@ try {
         !str_contains($article,'<pre><code>') || !str_contains($article,$createdUrl)) {
         throw new RuntimeException('PNG renderer discarded editable source or duplicated preview');
     }
+    // A second render after changing the authored Mermaid must replace
+    // the obsolete figure; the original editable source remains intact.
+    $newSource=str_replace('A[开始]','A[已更新的开始步骤]',$flow);
+    $pdo->prepare('UPDATE agent_topic_ideas SET html=? WHERE id=?')
+        ->execute([str_replace(h($flow),h($newSource),$article),$id]);
+    $changed=agent_diagram_process($pdo,$id,$fixture);
+    if($changed['status']!=='complete' || $changed['reused'] || $calls!==2) {
+        throw new RuntimeException('Edited Mermaid source did not trigger a fresh visual render');
+    }
+    $revisedUrl=$changed['url'];
+    $stmt->execute([$name]);$updated=$stmt->fetch()['html'];
+    if(substr_count($updated,'hh-diagram-raster')!==1 ||
+        str_contains($updated,$createdUrl) || !str_contains($updated,$revisedUrl) ||
+        !str_contains($updated,'已更新的开始步骤')) {
+        throw new RuntimeException('Old diagram remained after edited-source regeneration');
+    }
     set_setting('agent_diagram_auto_enabled','1');
     set_setting('agent_diagram_daily','0');
     if(agent_diagram_next($pdo)!==null) throw new RuntimeException('Zero diagram budget allowed unexpected rendering');
@@ -65,8 +81,9 @@ try {
     set_setting('agent_diagram_auto_enabled',$old);
     set_setting('agent_diagram_daily',$oldDaily);
     if($id) $pdo->prepare('DELETE FROM agent_topic_ideas WHERE id=?')->execute([$id]);
-    if($createdUrl!=='') {
-        $q=$pdo->prepare('SELECT id FROM media_assets WHERE url=?');$q->execute([$createdUrl]);
+    foreach([$createdUrl,$revisedUrl] as $url) {
+        if($url==='') continue;
+        $q=$pdo->prepare('SELECT id FROM media_assets WHERE url=?');$q->execute([$url]);
         $assetId=$q->fetchColumn();
         if($assetId) media_delete($pdo,(int)$assetId);
     }
