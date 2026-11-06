@@ -33,6 +33,20 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_fact_document') {
+        $out=agent_fact_document_add($pdo,$id,
+            (int)($post['claim_index']??-1),
+            (int)($post['source_id']??0),
+            (string)($post['source_url']??''));
+        return '原始资料核对：'.(string)($out['status']??'unknown').'。'.
+            (string)($out['message']??'结果已写入仅管理员可查看的核查记录');
+    }
+    if ($action==='topic_fact_delete') {
+        $docId=max(0,(int)($post['doc_id']??0));
+        $stmt=$pdo->prepare('DELETE FROM agent_fact_documents WHERE idea_id=? AND id=?');
+        $stmt->execute([$id,$docId]);
+        return $stmt->rowCount()===1?'已删除指定的内部核查记录':'该核查记录不存在';
+    }
     if ($action==='topic_ai_video_settings') {
         $base=trim((string)($post['base_url']??''));
         $model=trim((string)($post['model']??''));
