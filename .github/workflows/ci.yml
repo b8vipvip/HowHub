@@ -42,6 +42,8 @@ jobs:
         run: php tests/agent_runtime.php && php bin/agent-check.php > /tmp/howhub-agent-check.json
       - name: Async original video provider adapter tests
         run: php tests/agent_ai_video.php
+      - name: Approved original source document fact checks
+        run: php tests/agent_fact_documents.php
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
       - name: Verified update and rollback integration test
