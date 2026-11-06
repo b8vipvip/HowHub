@@ -34,9 +34,27 @@ try {
     $stmt->execute([$id]);$job=$stmt->fetch();
     if(!$job || $job['status']!=='queued') throw new RuntimeException('Opt-in video job not queued');
     $calls=[];
-    $transport=static function(string $action,array $payload) use (&$calls):array|string {
+    $t=1900000000;
+    $blockedReentry=0;
+    $transport=static function(string $action,array $payload) use (&$calls,&$blockedReentry,$pdo,$stmt,$idea,$id,$t):array|string {
         $calls[]=$action;
         if($action==='start') {
+            // Re-entrant second scheduler has a fresh running snapshot
+            // but must never call the paid creation endpoint again.
+            $stmt->execute([$id]);
+            $concurrent=$stmt->fetch();
+            if(!$concurrent || $concurrent['status']!=='running' ||
+                $concurrent['lease_token']==='') {
+                throw new RuntimeException('Creation was not durably claimed before paid API call');
+            }
+            $raced=agent_ai_video_process($pdo,$concurrent,$idea,
+                static function(string $op,array $unused):array {
+                    throw new RuntimeException('Second worker reached paid video provider: '.$op);
+                },$t);
+            if($raced['status']!=='busy') {
+                throw new RuntimeException('Second worker was not blocked by exclusive video lease');
+            }
+            $blockedReentry++;
             if (($payload['seconds']??null)!==60 || ($payload['size']??'')!=='720x1280') {
                 throw new RuntimeException('Long video request options not snapshotted for the new job');
             }
@@ -51,10 +69,21 @@ try {
         if($action==='download') return "\x00\x00\x00\x18ftypisom".str_repeat("\0",320);
         throw new RuntimeException('Unexpected provider operation');
     };
-    $t=1900000000;
     $start=agent_ai_video_process($pdo,$job,$idea,$transport,$t);
     if($start['status']!=='running' || $start['remote_id']!=='job_CI_safe_01') {
         throw new RuntimeException('Remote creation did not persist task identity');
+    }
+    if($blockedReentry!==1) throw new RuntimeException('Concurrent paid-create was not exercised');
+    $stmt->execute([$id]);
+    $claimed=$stmt->fetch();
+    if($claimed['lease_token']!=='' || (int)$claimed['lease_until']!==0) {
+        throw new RuntimeException('Successful provider request retained the exclusive lease');
+    }
+    // A queued snapshot from a previous scheduler must not start after
+    // the owner already transitioned it to running.
+    $stale=agent_ai_video_process($pdo,$job,$idea,$transport,$t+1);
+    if($stale['status']!=='busy') {
+        throw new RuntimeException('Stale queue snapshots should not resubmit paid videos');
     }
     $stmt->execute([$id]);$job=$stmt->fetch();
     $poll=agent_ai_video_process($pdo,$job,$idea,$transport,$t+120);
