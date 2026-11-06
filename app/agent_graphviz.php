@@ -178,7 +178,12 @@ function agent_diagram_process(PDO $pdo,int $ideaId,?callable $renderer=null): a
     $url=media_store_import_bytes($pdo,$bytes);
     $figure='<figure class="hh-diagram-raster"><img src="'.h($url).'" alt="原创教程结构化流程图 PNG">'.
         '<figcaption>由本站安全 Graphviz 渲染的原创流程关系图；编辑器仍保留原始 Mermaid 源码</figcaption></figure>';
-    $html=sanitize_content((string)$idea['html'].$figure);
+    // This PNG belongs to this diagram renderer. Editing the Mermaid
+    // source must replace the obsolete picture, never stack both diagrams.
+    $base=preg_replace('~<figure\\s+class=["\\\']hh-diagram-raster["\\\']\\s*>[\\s\\S]*?</figure>~iu',
+        '',(string)$idea['html']);
+    if(!is_string($base)) throw new RuntimeException('旧流程图标记无法安全清理');
+    $html=sanitize_content($base.$figure);
     $pdo->beginTransaction();
     try {
         $pdo->prepare('UPDATE agent_topic_ideas SET html=? WHERE id=? AND status=?')
