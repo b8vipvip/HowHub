@@ -13,6 +13,7 @@ function agent_admin_action(PDO $pdo, array $post): string
         set_setting('agent_stt_model',$model);
         return '视频音频转写选项已保存，仅对有明确许可的直链视频生效';
     }
+    if (str_starts_with($action,'topic_')) return agent_topic_admin_action($pdo,$post);
     if (str_starts_with($action,'research_')) return agent_research_admin_action($pdo,$post);
     if ($action==='global') {
         set_setting('agent_enabled',($post['enabled']??'')==='1'?'1':'0');
@@ -84,13 +85,14 @@ function agent_admin_page(PDO $pdo): void
     echo '<main class="shell admin-main">';
     admin_heading('CONTENT DISCOVERY','内容发现 Agent',
         '全球行业知识、教程、攻略和问答的合规低频发现、AI 初筛与人工审核。');
-    echo '<section class="admin-panel"><h2>全局设置</h2><p class="muted">默认关闭。只读取管理员明确登记且手动启用的网站来源，不自动横向扩散到其他网站。不绕过登录、付费墙和访问限制。</p>';
+    echo '<section class="admin-panel"><h2>全局设置</h2><p class="muted">默认关闭。原创选题模式只从搜索 API 或已允许访问的 RSS 获取标题/问题，不读取链接指向的正文；网站访问仍遵守 robots、频率限制及服务条款。</p>';
     echo '<p>运行状态：<strong>'.($global?'已启用（需要服务器定时任务）':'已关闭').'</strong>　待审 '.(int)$pending.'　排队 '.(int)$queued.'</p>';
     echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="global">';
     echo '<input type="hidden" name="enabled" value="'.($global?'0':'1').'"><button class="button primary" type="submit">'.($global?'停止全部自动发现':'启用全部自动发现').'</button></form>';
     echo '<p class="muted">定时任务：每 5 分钟运行 PHP CLI 文件 bin/agent-run.php；每次最多执行一项工作。管理员可以随时暂停。</p>';
     echo '</section>';
     agent_research_admin_section($pdo);
+    agent_topic_admin_section($pdo);
 
     echo '<section class="admin-panel"><h2>添加来源网站</h2><p class="muted">建议使用有公开 RSS/Atom/Sitemap 的官方知识库、开放教材或已经允许内容使用的网站。不限中文或英文。新来源默认为摘要模式并暂停。</p>';
     echo '<form method="post" action="/admin/agent/action" class="stack-form">'.csrf_input().'<input type="hidden" name="action" value="add">';
