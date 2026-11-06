@@ -55,6 +55,15 @@ try {
                 throw new RuntimeException('Second worker was not blocked by exclusive video lease');
             }
             $blockedReentry++;
+            $rejectSkip=false;
+            try {
+                agent_topic_admin_action($pdo,['action'=>'topic_ai_video_skip','id'=>$id]);
+            } catch(RuntimeException $e) {
+                $rejectSkip=str_contains($e->getMessage(),'正在执行');
+            }
+            if(!$rejectSkip) {
+                throw new RuntimeException('Admin skipped a currently billed video task mid-flight');
+            }
             if (($payload['seconds']??null)!==60 || ($payload['size']??'')!=='720x1280') {
                 throw new RuntimeException('Long video request options not snapshotted for the new job');
             }
