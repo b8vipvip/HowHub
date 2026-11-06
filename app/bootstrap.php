@@ -62,6 +62,7 @@ require_once __DIR__ . '/agent_research_admin.php';
 require_once __DIR__ . '/agent_audio.php';
 require_once __DIR__ . '/agent_math_render.php';
 require_once __DIR__ . '/agent_rich_diagrams.php';
+require_once __DIR__ . '/agent_runtime.php';
 require_once __DIR__ . '/agent_attribution.php';
 require_once __DIR__ . '/agent_ai.php';
 require_once __DIR__ . '/agent_review.php';
