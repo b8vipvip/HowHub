@@ -66,7 +66,8 @@ function agent_research_propose(PDO $pdo, string $url, string $title, string $sn
     if (!in_array($method,['search_api','ai_suggestion'],true)) return false;
     try {
         $url=agent_normalize_url(trim($url));
-        $origin=agent_origin($url);
+        $host=(string)parse_url($url,PHP_URL_HOST);
+        $origin=agent_origin('https://'.$host);
     } catch (Throwable $e) { return false; }
     $host=strtolower((string)parse_url($origin,PHP_URL_HOST));
     if (preg_match('/\.(?:local|localhost|internal|invalid|test|onion|lan)$/i',$host)) return false;
@@ -92,7 +93,7 @@ function agent_research_accept(PDO $pdo, int $proposalId): int
     $p=$stmt->fetch();
     if (!$p) throw new RuntimeException('找不到待审核的来源网站候选');
     // Do not auto-follow unrelated paths or accept an AI claim as a licence.
-    if (agent_origin($p['example_url'])!==$p['origin']) {
+    if (!agent_same_origin($p['example_url'],$p['origin'])) {
         throw new RuntimeException('来源候选地址已变更，无法验证主域名一致性');
     }
     $sourceId=agent_add_source($pdo,$p['origin'],'',
