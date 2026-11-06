@@ -26,6 +26,8 @@ function agent_runtime_report(PDO $pdo): array
         $check('php_'.$ext,extension_loaded($ext),
             extension_loaded($ext)?'PHP 扩展已启用':'缺少 PHP '.$ext.' 扩展');
     }
+    $dot=url_import_bin('dot');
+    $check('graphviz',$dot!=='',$dot!==''?'已安装本地 Graphviz 绘图工具':'未安装 Graphviz；仅显示 HTML 关系图');
     $ffmpeg=url_import_bin('ffmpeg');
     $check('ffmpeg',$ffmpeg!=='',$ffmpeg!==''?'已找到 FFmpeg':'未安装 FFmpeg，视频合成不可用');
     if ($ffmpeg!=='') {
@@ -98,6 +100,7 @@ function agent_runtime_report(PDO $pdo): array
         'video'=>setting('agent_original_video_enabled','0')==='1',
         'crosscheck'=>setting('agent_fact_search_enabled','0')==='1',
         'auto_primary_sources'=>setting('agent_fact_auto_enabled','0')==='1',
+        'diagram_png'=>setting('agent_diagram_auto_enabled','0')==='1',
         'ai_video'=>setting('agent_ai_video_enabled','0')==='1',
     ];
     return $report;
