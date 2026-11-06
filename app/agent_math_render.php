@@ -111,6 +111,12 @@ function agent_mermaid_linear_preview(string $definition): string
         if (count($edges)>8) return '';
     }
     if (!$edges) return '';
+    // Never show a partial flow for Mermaid with styles, decision branches,
+    // labelled edges, subgraphs or any grammar this small renderer cannot parse.
+    $remainder=preg_replace('/^\s*graph\s+(?:TD|TB|LR|RL)\s*(?:;|\r?\n|$)/i','',$definition);
+    $remainder=preg_replace('/[A-Za-z][A-Za-z0-9_]*(?:\[[^\[\]\r\n]{1,60}\])?\s*-->\s*[A-Za-z][A-Za-z0-9_]*(?:\[[^\[\]\r\n]{1,60}\])?/u','',$remainder ?? '');
+    $remainder=preg_replace('/[;\s]+/u','',$remainder ?? '');
+    if ($remainder!=='') return '';
     $incoming=array_fill_keys(array_keys($edges),0);
     foreach($edges as $to) $incoming[$to]=($incoming[$to]??0)+1;
     foreach($incoming as $count) if ($count>1) return '';
