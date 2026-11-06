@@ -62,6 +62,7 @@ function agent_admin_action(PDO $pdo, array $post): string
         return '已拒绝候选';
     }
     if ($action==='approve') {
+        if (setting('agent_creation_mode','topic_only')==='topic_only') throw new RuntimeException('原文转载式候选已暂停，当前仅可审核原创选题队列');
         $guideId=agent_approve_candidate($pdo,$id);
         return '已创建教程草稿 #'.$guideId.'，尚未发布。请在教程管理中核实内容';
     }
@@ -134,7 +135,7 @@ function agent_admin_page(PDO $pdo): void
             $mediaCounts=[];
             foreach ($mediaStatus->fetchAll() as $row) $mediaCounts[$row['status']]=(int)$row['n'];
             echo '<section class="admin-panel"><h2>候选详情 #'.(int)$c['id'].'</h2><p class="muted">来源：'.h($c['url']).'</p><p>授权图片转存：待处理 '.(int)($mediaCounts['queued']??0).' / 成功 '.(int)($mediaCounts['done']??0).' / 跳过 '.(int)($mediaCounts['skipped']??0).'</p><p>证据：'.h($c['evidence']).'</p><p>格式：'.h($c['format_notes']).'</p><div class="article-content">'.sanitize_content($c['body_html']).'</div>';
-            if ($c['status']==='review') {
+            if ($c['status']==='review' && setting('agent_creation_mode','topic_only')!=='topic_only') {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="'.(int)$c['id'].'"><button class="button primary" type="submit">人工确认后创建未发布草稿</button></form>';
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="'.(int)$c['id'].'"><button class="button secondary" type="submit">拒绝候选</button></form>';
             } elseif ($c['guide_id']) echo '<p><a href="/admin/guides/edit?id='.(int)$c['guide_id'].'">编辑已建立的草稿</a></p>';
