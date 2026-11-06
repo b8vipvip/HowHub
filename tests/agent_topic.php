@@ -22,11 +22,11 @@ try {
         return [
             'status'=>200,
             'headers'=>['content-type'=>'application/rss+xml'],
-            'body'=>'<rss><channel><item><title>如何排查无线路由器连接故障？</title><link>https://ci-title-feed.example.org/how-to-wifi</link><description>DO_NOT_SEND_COPYRIGHTED_BODY_TO_AI</description></item></channel></rss>',
+            'body'=>'<rss><channel><item><title>如何排查无线路由器连接故障？</title><link>https://ci-title-feed.example.org/how-to-wifi</link><description>DO_NOT_SEND_COPYRIGHTED_BODY_TO_AI。如何解决设备无法获取 IP 地址？请依据新问题独立编写答案。</description></item></channel></rss>',
         ];
     };
     $found=agent_discover($pdo,$source,$fixture);
-    if ($found['status']!=='discovered' || $found['added']!==1 ||
+    if ($found['status']!=='discovered' || $found['added']!==2 ||
         $fetched!==['https://ci-title-feed.example.org/rss.xml']) {
         throw new RuntimeException('Feed topic-only ingestion must avoid linked article URLs');
     }
@@ -36,6 +36,12 @@ try {
         throw new RuntimeException('Only feed heading should enter idea queue');
     }
     $topicIds[]=(int)$idea['id'];
+    $questions=$pdo->query("SELECT * FROM agent_topic_ideas WHERE source_id=".$sourceId." AND source_method='feed_question'")->fetchAll();
+    if (count($questions)!==1 || !str_contains($questions[0]['raw_title'],'如何解决设备无法获取 IP 地址')) {
+        throw new RuntimeException('Only short questions, not copyrighted summaries, should be extracted');
+    }
+    foreach($questions as $q) $topicIds[]=(int)$q['id'];
+
     if (agent_topic_enqueue($pdo,$idea['raw_title'],$idea['source_url'],'feed_title','网络排障','zh',$sourceId)) {
         throw new RuntimeException('Source heading was not deduplicated');
     }
