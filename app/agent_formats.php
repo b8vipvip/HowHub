@@ -19,6 +19,7 @@ function agent_source_features(string $html): array
     $xp = new DOMXPath($doc);
     $tables = [];
     $formulas = [];
+    $mathml = [];
     $diagrams = [];
     $warnings = [];
     foreach ($xp->query('.//table',$node) ?: [] as $table) {
@@ -27,6 +28,14 @@ function agent_source_features(string $html): array
         if (strlen($content)>10000) { $warnings[]='存在超大表格，需人工检查';continue; }
         $clean = sanitize_content($content);
         if (substr_count($clean,'<tr')>=1) $tables[] = $clean;
+    }
+    foreach ($xp->query('.//math',$node) ?: [] as $mathNode) {
+        if (count($mathml)>=15) break;
+        if (!$mathNode instanceof DOMElement) continue;
+        $raw=(string)$doc->saveHTML($mathNode);
+        if (strlen($raw)>7000) continue;
+        $preview=sanitize_content($raw);
+        if (str_contains($preview,'<math') && str_contains($preview,'<m')) $mathml[]=$preview;
     }
     foreach ($xp->query('.//math | .//*[@data-tex] | .//script[@type="math/tex"] | .//annotation[@encoding="application/x-tex"]',$node) ?: [] as $math) {
         if (count($formulas)>=25) break;
@@ -52,10 +61,10 @@ function agent_source_features(string $html): array
     }
     $vectorCount = $xp->query('.//svg | .//canvas',$node)?->length ?? 0;
     if ($vectorCount) $warnings[]='含 '.$vectorCount.' 个 SVG/Canvas 绘制元素，静态解析不能保证原图还原';
-    if ($diagrams) $warnings[]='导图/流程图定义已保留为可编辑源码；图形渲染仍需专用渲染器';
-    if ($formulas) $warnings[]='公式已保留原始表达式；当前使用代码排版，不宣称数学排版 1:1';
+    if ($diagrams) $warnings[]='仅简单线性流程图提供近似预览；复杂分支图仍保留源码，未保证 1:1';
+    if ($formulas) $warnings[]='MathML 和部分基础 TeX 提供浏览器公式预览；复杂宏仅保留可编辑源码';
     return [
-        'tables'=>$tables,'formulas'=>$formulas,'diagrams'=>$diagrams,
+        'tables'=>$tables,'formulas'=>$formulas,'mathml'=>$mathml,'diagrams'=>$diagrams,
         'counts'=>['tables'=>count($tables),'formulas'=>count($formulas),
             'diagrams'=>count($diagrams),'vector'=>$vectorCount],
         'warnings'=>$warnings,
@@ -69,15 +78,22 @@ function agent_structured_html(array $features): string
         $html .= '<h2>原文数据表</h2>';
         foreach ($features['tables'] as $table) $html .= $table;
     }
-    if ($features['formulas']) {
+    if (!empty($features['formulas']) || !empty($features['mathml'])) {
         $html .= '<h2>原文公式</h2>';
-        foreach ($features['formulas'] as $tex) {
+        foreach (($features['mathml'] ?? []) as $math) $html .= $math;
+        foreach (($features['formulas'] ?? []) as $tex) {
+            if (empty($features['mathml'])) {
+                $preview=agent_tex_mathml($tex);
+                if ($preview!=='') $html .= $preview;
+            }
             $html .= '<pre><code>'.h($tex).'</code></pre>';
         }
     }
     if ($features['diagrams']) {
         $html .= '<h2>流程图和导图定义</h2>';
         foreach ($features['diagrams'] as $definition) {
+            $preview=agent_mermaid_linear_preview($definition);
+            if ($preview!=='') $html .= $preview;
             $html .= '<pre><code>'.h($definition).'</code></pre>';
         }
     }
