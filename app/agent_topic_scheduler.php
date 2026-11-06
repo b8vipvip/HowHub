@@ -35,7 +35,8 @@ function agent_topic_next(PDO $pdo): ?array
     if (setting('agent_creation_mode','topic_only')!=='topic_only') return null;
     // Settle outstanding optional pictures before issuing new text jobs.
     $pending=$pdo->query("SELECT * FROM agent_topic_ideas WHERE status='review' AND asset_status='pending' ORDER BY id LIMIT 1")->fetch();
-    if ($pending && agent_topic_budget_take($pdo,'image',(int)$pending['id'])) {
+    if ($pending && (setting('agent_original_image_enabled','0')!=='1' ||
+        agent_topic_budget_take($pdo,'image',(int)$pending['id']))) {
         $result=agent_topic_process_illustration($pdo,$pending);
         return ['action'=>'original_image','topic_id'=>(int)$pending['id']]+$result;
     }
