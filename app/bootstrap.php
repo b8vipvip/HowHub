@@ -46,6 +46,7 @@ require_once __DIR__ . '/agent_research_tick.php';
 require_once __DIR__ . '/agent_topic_store.php';
 require_once __DIR__ . '/agent_topic_ai.php';
 require_once __DIR__ . '/agent_topic_image.php';
+require_once __DIR__ . '/agent_topic_scheduler.php';
 require_once __DIR__ . '/agent_store.php';
 require_once __DIR__ . '/agent_robots.php';
 require_once __DIR__ . '/agent_discovery.php';
