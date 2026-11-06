@@ -33,7 +33,18 @@ CREATE TABLE IF NOT EXISTS agent_fact_auto_runs (
  requested_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agent_fact_auto_runs_day ON agent_fact_auto_runs(requested_at);
+CREATE TABLE IF NOT EXISTS agent_fact_auto_plans (
+ idea_id INTEGER PRIMARY KEY REFERENCES agent_topic_ideas(id) ON DELETE CASCADE,
+ quality_checked_at INTEGER NOT NULL DEFAULT 0,
+ scanned_at INTEGER NOT NULL,
+ candidate_count INTEGER NOT NULL DEFAULT 0
+);
 SQL);
+    $columns=$pdo->query('PRAGMA table_info(agent_fact_auto_tasks)')->fetchAll();
+    $names=array_column($columns,'name');
+    if(!in_array('quality_checked_at',$names,true)) {
+        $pdo->exec('ALTER TABLE agent_fact_auto_tasks ADD COLUMN quality_checked_at INTEGER NOT NULL DEFAULT 0');
+    }
 }
 
 /**
@@ -45,25 +56,61 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
 {
     if (setting('agent_fact_auto_enabled','0')!=='1') return 0;
     $q=$pdo->prepare("SELECT i.status AS idea_status,q.status AS review_status,
-        q.issues_json,q.evidence_json FROM agent_topic_ideas i
+        q.issues_json,q.evidence_json,q.checked_at AS review_checked_at FROM agent_topic_ideas i
         JOIN agent_topic_quality q ON q.idea_id=i.id WHERE i.id=?");
     $q->execute([$ideaId]);$record=$q->fetch();
     if (!$record || $record['idea_status']!=='review' ||
         $record['review_status']!=='needs_review') return 0;
+    $checked=(int)$record['review_checked_at'];
+    $existingPlan=$pdo->prepare('SELECT quality_checked_at,scanned_at FROM agent_fact_auto_plans WHERE idea_id=?');
+    $existingPlan->execute([$ideaId]);$oldPlan=$existingPlan->fetch();
+    if($oldPlan && (int)$oldPlan['quality_checked_at']===$checked &&
+        (int)$oldPlan['scanned_at']>time()-86400) return 0;
+    // Invalidate tasks attached to a previous, revised claim list.
+    $pdo->prepare("UPDATE agent_fact_auto_tasks SET status='skipped',last_status='outdated_review'
+        WHERE idea_id=? AND quality_checked_at!=? AND status='queued'")
+        ->execute([$ideaId,$checked]);
     $claims=json_decode((string)$record['issues_json'],true)['claims']??[];
     $evidence=json_decode((string)$record['evidence_json'],true);
-    if(!is_array($claims) || !is_array($evidence)) return 0;
+    if(!is_array($claims) || !is_array($evidence)) {
+        $pdo->prepare('INSERT INTO agent_fact_auto_plans (idea_id,quality_checked_at,scanned_at,candidate_count)
+            VALUES(?,?,?,0) ON CONFLICT(idea_id) DO UPDATE SET
+            quality_checked_at=excluded.quality_checked_at,
+            scanned_at=excluded.scanned_at,candidate_count=0')
+            ->execute([$ideaId,$checked,time()]);
+        return 0;
+    }
     $sources=$pdo->query('SELECT id,origin FROM agent_sources WHERE enabled=1 ORDER BY id LIMIT 100')->fetchAll();
-    if (!$sources) return 0;
-    $existing=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_tasks WHERE idea_id=?');
-    $existing->execute([$ideaId]);
+    // Even when sources are empty, persist the scan to avoid spinning every tick.
+    if (!$sources) {
+        $pdo->prepare('INSERT INTO agent_fact_auto_plans(idea_id,quality_checked_at,scanned_at,candidate_count) VALUES(?,?,?,0) ON CONFLICT(idea_id) DO UPDATE SET quality_checked_at=excluded.quality_checked_at,scanned_at=excluded.scanned_at,candidate_count=0')->execute([$ideaId,$checked,time()]);
+        return 0;
+    }
+    // A fresh second-pass review is a new claim snapshot; older stopped
+    // tasks must not permanently consume the current four-candidate budget.
+    $existing=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_tasks
+        WHERE idea_id=? AND quality_checked_at=?');
+    $existing->execute([$ideaId,$checked]);
     $remaining=max(0,4-(int)$existing->fetchColumn());
-    if(!$remaining) return 0;
-    $insert=$pdo->prepare("INSERT OR IGNORE INTO agent_fact_auto_tasks
-        (idea_id,claim_index,source_id,source_url,created_at) VALUES(?,?,?,?,?)");
+    if(!$remaining) {
+        $pdo->prepare('INSERT INTO agent_fact_auto_plans(idea_id,quality_checked_at,scanned_at,candidate_count)
+            VALUES(?,?,?,0) ON CONFLICT(idea_id) DO UPDATE SET
+            quality_checked_at=excluded.quality_checked_at,scanned_at=excluded.scanned_at,
+            candidate_count=0')->execute([$ideaId,$checked,time()]);
+        return 0;
+    }
+    $insert=$pdo->prepare("INSERT INTO agent_fact_auto_tasks
+        (idea_id,claim_index,source_id,source_url,created_at,quality_checked_at)
+        VALUES(?,?,?,?,?,?)
+        ON CONFLICT(idea_id,claim_index,source_url) DO UPDATE SET
+          source_id=excluded.source_id,created_at=excluded.created_at,
+          quality_checked_at=excluded.quality_checked_at,
+          status='queued',attempts=0,next_at=0,last_status=''
+        WHERE agent_fact_auto_tasks.quality_checked_at!=excluded.quality_checked_at");
     $count=0;
     foreach(array_slice($claims,0,8) as $idx=>$claim) {
-        if(!is_array($claim) || ($claim['finding']??'unverified')==='corroborating_snippets') continue;
+        // Search-snippet corroboration is NOT a reason to skip primary-source checks.
+        if(!is_array($claim)) continue;
         $indexes=is_array($claim['source_indexes']??null)?$claim['source_indexes']:[];
         // No model-supplied URLs may be invented here; only indexed results
         // from our stored, separately fetched search API evidence.
@@ -77,7 +124,7 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
             if($host==='' || isset($domainUsed[$host])) continue;
             foreach($sources as $source) {
                 if(!agent_same_origin($candidate,(string)$source['origin'])) continue;
-                $insert->execute([$ideaId,(int)$idx,(int)$source['id'],$candidate,time()]);
+                $insert->execute([$ideaId,(int)$idx,(int)$source['id'],$candidate,time(),$checked]);
                 if($insert->rowCount()) {
                     $domainUsed[$host]=true;
                     $count++;$remaining--;
@@ -88,6 +135,10 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
         }
         if(!$remaining) break;
     }
+    $pdo->prepare('INSERT INTO agent_fact_auto_plans(idea_id,quality_checked_at,scanned_at,candidate_count)
+        VALUES(?,?,?,?) ON CONFLICT(idea_id) DO UPDATE SET
+        quality_checked_at=excluded.quality_checked_at,scanned_at=excluded.scanned_at,
+        candidate_count=excluded.candidate_count')->execute([$ideaId,$checked,time(),$count]);
     return $count;
 }
 
@@ -123,14 +174,16 @@ function agent_fact_auto_step(PDO $pdo,?callable $http=null,?callable $ai=null,?
     $unplanned=$pdo->query("SELECT i.id FROM agent_topic_ideas i
        JOIN agent_topic_quality q ON q.idea_id=i.id
        WHERE i.status='review' AND q.status='needs_review'
-       AND NOT EXISTS(SELECT 1 FROM agent_fact_auto_tasks t WHERE t.idea_id=i.id)
-       ORDER BY i.id DESC LIMIT 1")->fetchColumn();
+       AND NOT EXISTS(SELECT 1 FROM agent_fact_auto_plans p WHERE p.idea_id=i.id
+           AND p.quality_checked_at=q.checked_at AND p.scanned_at>strftime('%s','now')-86400)
+       ORDER BY i.id ASC LIMIT 1")->fetchColumn();
     if($unplanned) agent_fact_auto_plan($pdo,(int)$unplanned);
     $q=$pdo->prepare("SELECT t.* FROM agent_fact_auto_tasks t
         JOIN agent_topic_ideas i ON i.id=t.idea_id
         JOIN agent_topic_quality q ON q.idea_id=i.id
         WHERE t.status='queued' AND t.next_at<=?
           AND i.status='review' AND q.status='needs_review'
+          AND t.quality_checked_at=q.checked_at
         ORDER BY t.next_at,t.id LIMIT 1");
     $q->execute([$now]);$task=$q->fetch();
     if(!$task || !agent_fact_auto_budget($pdo,(int)$task['id'],$now)) return null;

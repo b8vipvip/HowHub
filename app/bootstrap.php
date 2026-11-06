@@ -49,6 +49,8 @@ require_once __DIR__ . '/agent_topic_av_store.php';
 require_once __DIR__ . '/agent_ai_video.php';
 require_once __DIR__ . '/agent_ai_video_stream.php';
 require_once __DIR__ . '/agent_fact_documents.php';
+require_once __DIR__ . '/agent_fact_consensus.php';
+require_once __DIR__ . '/agent_katex.php';
 require_once __DIR__ . '/agent_fact_auto.php';
 require_once __DIR__ . '/agent_graphviz.php';
 require_once __DIR__ . '/agent_topic_audio.php';

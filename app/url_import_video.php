@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 function url_import_bin(string $name): string
 {
-    if (!in_array($name, ['yt-dlp','ffmpeg','pdftotext','unzip','dot'], true)) return '';
+    if (!in_array($name, ['yt-dlp','ffmpeg','pdftotext','unzip','dot','node'], true)) return '';
     foreach (['/usr/bin/', '/usr/local/bin/'] as $dir) {
         $path = $dir . $name;
         if (is_file($path) && is_executable($path)) return $path;

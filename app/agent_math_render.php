@@ -200,6 +200,8 @@ function agent_tex_mathml(string $tex): string
     if ($tex==='' || strlen($tex)>1900 || !preg_match('//u',$tex)) return '';
     if (str_starts_with($tex,'$$') && str_ends_with($tex,'$$')) $tex=substr($tex,2,-2);
     elseif (str_starts_with($tex,'$') && str_ends_with($tex,'$')) $tex=substr($tex,1,-1);
+    $rich=agent_katex_mathml($tex);
+    if($rich!=='') return $rich;
     $multiline=agent_tex_multiline_mathml($tex);
     if ($multiline!=='') return $multiline;
     $matrix=agent_tex_matrix_mathml($tex);

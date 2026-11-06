@@ -12,3 +12,6 @@
 /storage/ai-secret.key
 
 /storage/diagnostics/
+
+# Optional offline KaTeX runtime installed on the host
+/node_modules/

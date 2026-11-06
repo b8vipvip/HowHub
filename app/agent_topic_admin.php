@@ -46,6 +46,27 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         $result=agent_diagram_process($pdo,$id);
         return ($result['status']??'')==='complete'?'已生成或复用本站原创的安全流程 PNG':'没有可渲染的图源码';
     }
+    if ($action==='topic_katex_settings') {
+        $enable=($post['enabled']??'')==='1';
+        if($enable && !agent_katex_available()) {
+            throw new RuntimeException('未安装本地 Node/KaTeX；请先按 README 安装离线依赖再启用');
+        }
+        set_setting('agent_katex_enabled',$enable?'1':'0');
+        return '已保存公式渲染方式；原有 MathML 和可编辑源码始终保留';
+    }
+    if ($action==='topic_fact_evidence_settings') {
+        $days=min(180,max(7,(int)($post['days']??30)));
+        set_setting('agent_fact_evidence_days',(string)$days);
+        return '原始资料的有效性窗口已设置为 '.$days.' 天；超过有效期或来源被禁用的旧证据不再作为交叉支持';
+    }
+    if ($action==='topic_fact_replan') {
+        if(setting('agent_fact_auto_enabled','0')!=='1') {
+            throw new RuntimeException('请先启用已批准来源的自动核查');
+        }
+        $pdo->prepare('DELETE FROM agent_fact_auto_plans WHERE idea_id=?')->execute([$id]);
+        $count=agent_fact_auto_plan($pdo,$id);
+        return '已根据现有已批准来源重新规划 '.(int)$count.' 条候选证据任务；具体访问仍须等待 robots 与站点冷却';
+    }
     if ($action==='topic_fact_auto_settings') {
         $enabled=($post['enabled']??'')==='1';
         $daily=min(8,max(0,(int)($post['daily']??2)));
@@ -291,6 +312,20 @@ function agent_topic_admin_section(PDO $pdo): void
          '<label>自动生成原创关系图<select name="enabled"><option value="0" '.(!$diagramOn?'selected':'').'>关闭（保留 HTML 原生预览）</option><option value="1" '.($diagramOn?'selected':'').'>开启（需 dot）</option></select></label>'.
          '<label>每日图形数量<input type="number" min="0" max="8" name="daily" value="'.$diagramDaily.'"></label>'.
          '<button class="button secondary" type="submit">保存图形渲染设置</button></form>';
+    $evidenceDays=min(180,max(7,(int)setting('agent_fact_evidence_days','30')));
+    $katexOn=setting('agent_katex_enabled','0')==='1';
+    echo '<h3>可选本地 KaTeX 高保真公式（服务器预渲染 MathML）</h3>';
+    echo '<p class="muted">安装固定版本 KaTeX 后，在服务器离线解析更复杂的 LaTeX 为可访问 MathML。禁止不可信的 URL、宏文件与外部资源；遇到异常自动回退到内置解析器。无需 CDN、在线 JavaScript 或外部绘图服务。安装状态：'.(agent_katex_available()?'本地模块可用':'尚未安装本地模块').'</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_katex_settings">'.
+        '<label>使用本地 KaTeX<select name="enabled"><option value="0" '.(!$katexOn?'selected':'').'>关闭（内置 MathML）</option><option value="1" '.($katexOn?'selected':'').'>开启（需要安装 KaTeX）</option></select></label>'.
+        '<button class="button secondary" type="submit">保存高保真公式设置</button></form>';
+    echo '<h3>原始资料有效期与独立站点交叉核查</h3>';
+    echo '<p class="muted">同一域名只计为一个来源；两个不同已启用站点的原始文档一致时，才记为“跨来源支持线索”；来源被停用、证据过期或文档冲突时自动降级。绝不直接作为事实认证或发布许可。</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_fact_evidence_settings">'.
+        '<label>原始资料有效期（7–180天）<input type="number" min="7" max="180" name="days" value="'.$evidenceDays.'"></label>'.
+        '<button class="button secondary" type="submit">保存核查有效期</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
@@ -320,6 +355,18 @@ function agent_topic_admin_section(PDO $pdo): void
             $qualityLookup->execute([$selected]);
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
+            $planQuery=$pdo->prepare('SELECT scanned_at,candidate_count FROM agent_fact_auto_plans WHERE idea_id=?');
+            $planQuery->execute([$selected]);$autoPlan=$planQuery->fetch();
+            if($autoPlan) echo '<p class="muted">最近受控来源规划：'.
+                h(date('Y-m-d H:i',(int)$autoPlan['scanned_at'])).
+                '；本轮新增候选：'.(int)$autoPlan['candidate_count'].
+                '。无匹配来源时不会每轮反复规划。</p>';
+            if($item['status']==='review' && $autoFactOn) {
+                echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                    '<input type="hidden" name="action" value="topic_fact_replan">'.
+                    '<input type="hidden" name="id" value="'.$selected.'">'.
+                    '<button class="button secondary" type="submit">重新评估已批准来源（不立即联网）</button></form>';
+            }
             $autoEvidence=agent_fact_auto_for_idea($pdo,$selected);
             if ($autoEvidence) {
                 echo '<h4>自动原文核验队列（只有已经启用的来源可访问）</h4>';
@@ -403,6 +450,25 @@ function agent_topic_admin_section(PDO $pdo): void
                             if ($url!=='') echo ' <a href="'.h($url).'" target="_blank" rel="noopener noreferrer nofollow">索引线索 #'.(int)$ref.'</a>';
                         }
                         echo '</p>';
+                    }
+                }
+                if ($claims) {
+                    $aggregate=agent_fact_consensus_for_idea($pdo,$selected);
+                    echo '<h4>原始资料跨站核查摘要（不等于事实认证）</h4>';
+                    $labels=[
+                        'cross_source_support'=>'两个以上独立站点提供一致的原文支持线索',
+                        'single_source_support'=>'仅有一个站点支持，证据不足',
+                        'conflicting_evidence'=>'存在与教程主张相矛盾的文档，需优先复核',
+                        'expired_evidence'=>'原有证据已经过期',
+                        'insufficient_evidence'=>'尚无可用的独立原始资料',
+                    ];
+                    foreach($aggregate as $part) {
+                        echo '<p><strong>主张 #'.((int)$part['claim_index']+1).'：'.h(mb_substr($part['claim'],0,150)).
+                            '</strong><br><small>'.h($labels[$part['status']]??$part['status']).
+                            '；原文支持站点：'.(int)$part['support_count'].
+                            '；冲突站点：'.(int)$part['conflict_count'].
+                            '；过期/撤销证据：'.((int)$part['expired_count']+(int)$part['disabled_count']).
+                            '；有效窗口：'.(int)$part['valid_days'].' 天</small></p>';
                     }
                 }
                 if ($claims) {
