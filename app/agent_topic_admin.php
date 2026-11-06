@@ -77,9 +77,15 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         return '已停止本地视频任务；如果远端已经创建任务，仍可能计费，请到供应商后台检查';
     }
     if ($action==='topic_ai_video_retry') {
+        $q=$pdo->prepare("SELECT remote_id FROM agent_ai_video_jobs WHERE idea_id=? AND status='failed'");
+        $q->execute([$id]);$job=$q->fetch();
+        if(!$job) throw new RuntimeException('视频任务不处于失败状态');
+        if($job['remote_id']==='' && ($post['accept_charge_risk']??'')!=='1') {
+            throw new RuntimeException('上次提交结果不明，可能已经计费；如要重新创建，必须明确确认重复扣费风险');
+        }
         $pdo->prepare("UPDATE agent_ai_video_jobs SET status=CASE WHEN remote_id='' THEN 'queued' ELSE 'running' END,
             next_check=0,error='' WHERE idea_id=? AND status='failed'")->execute([$id]);
-        return '已恢复失败任务；已有远端 ID 时仅继续查询，不会重复付费创建任务';
+        return '已恢复失败任务；有远端 ID 时将继续查询，重建任务仍受每日预算限制';
     }
     if ($action==='topic_media_settings') {
         $model=trim((string)($post['tts_model']??'tts-1'));
@@ -265,9 +271,12 @@ function agent_topic_admin_section(PDO $pdo): void
                 }
                 if($modelVideo['status']==='failed') {
                     echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                        ($modelVideo['remote_id']===''?'<input type="hidden" name="accept_charge_risk" value="1">':'').
                         '<input type="hidden" name="action" value="topic_ai_video_retry">'.
                         '<input type="hidden" name="id" value="'.$selected.'">'.
-                        '<button class="button secondary" type="submit">恢复失败的视频任务（有远端 ID 时不重建）</button></form>';
+                        '<button class="button secondary" type="submit">'.($modelVideo['remote_id']===''?
+                            '重新发起可能重复计费的视频任务（须确认供应商后台）':
+                            '继续查询已有远端视频任务，不重复提交').'</button></form>';
                 }
             }
 
