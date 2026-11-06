@@ -90,7 +90,7 @@ function agent_structured_html(array $features): string
     if ($features['diagrams']) {
         $html .= '<h2>流程图和导图定义</h2>';
         foreach ($features['diagrams'] as $definition) {
-            $preview=agent_mermaid_linear_preview($definition);
+            $preview=agent_mermaid_diagram_preview($definition);
             if ($preview!=='') $html .= $preview;
             $html .= '<pre><code>'.h($definition).'</code></pre>';
         }
