@@ -82,7 +82,13 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
     $existing=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_tasks WHERE idea_id=?');
     $existing->execute([$ideaId]);
     $remaining=max(0,4-(int)$existing->fetchColumn());
-    if(!$remaining) return 0;
+    if(!$remaining) {
+        $pdo->prepare('INSERT INTO agent_fact_auto_plans(idea_id,quality_checked_at,scanned_at,candidate_count)
+            VALUES(?,?,?,0) ON CONFLICT(idea_id) DO UPDATE SET
+            quality_checked_at=excluded.quality_checked_at,scanned_at=excluded.scanned_at,
+            candidate_count=0')->execute([$ideaId,$checked,time()]);
+        return 0;
+    }
     $insert=$pdo->prepare("INSERT OR IGNORE INTO agent_fact_auto_tasks
         (idea_id,claim_index,source_id,source_url,created_at,quality_checked_at) VALUES(?,?,?,?,?,?)");
     $count=0;
