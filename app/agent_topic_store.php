@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS agent_topic_ideas (
  industry TEXT NOT NULL DEFAULT '',
  language TEXT NOT NULL DEFAULT '',
  source_url TEXT NOT NULL DEFAULT '',
- source_method TEXT NOT NULL CHECK(source_method IN ('search_api','feed_title','manual')),
+ source_method TEXT NOT NULL CHECK(source_method IN ('search_api','search_question','feed_title','feed_question','manual')),
  source_id INTEGER REFERENCES agent_sources(id) ON DELETE SET NULL,
  status TEXT NOT NULL DEFAULT 'queued'
    CHECK(status IN ('queued','review','rejected','error','draft')),
@@ -60,7 +60,7 @@ function agent_topic_clean_title(string $raw): string
 function agent_topic_enqueue(PDO $pdo, string $title, string $sourceUrl, string $method,
     string $industry = '', string $language = '', ?int $sourceId = null): bool
 {
-    if (!in_array($method,['search_api','feed_title','manual'],true)) return false;
+    if (!in_array($method,['search_api','search_question','feed_title','feed_question','manual'],true)) return false;
     try {
         $title=agent_topic_clean_title($title);
         $sourceUrl=$sourceUrl!=='' ? agent_normalize_url($sourceUrl) : '';
