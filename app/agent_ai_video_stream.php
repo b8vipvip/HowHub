@@ -65,9 +65,6 @@ function agent_ai_video_receive_mp4(string $remoteId,int $limitMb=18,?callable $
         }
         fflush($handle);
         if($size<128 || $size>$limit) throw new RuntimeException('MP4 文件太小或超出大小限制');
-        if(fseek($handle,0)!==0) {
-            // 'wb' is write-only; check header after closing below instead.
-        }
         fclose($handle);$handle=null;
         $start=file_get_contents($path,false,null,0,24);
         if(!is_string($start) || !str_contains($start,'ftyp') ||
@@ -98,7 +95,7 @@ function agent_ai_video_register_mp4(PDO $pdo,string $path,int $limitMb=18): str
     if(!is_dir($dir) && !mkdir($dir,0770,true) && !is_dir($dir)) throw new RuntimeException('私有视频素材目录不可写');
     $relative=$folder.'/'.bin2hex(random_bytes(16)).'.mp4';
     $dest=media_directory('file').'/'.$relative;
-    if(!copy($real,$dest)) throw new RuntimeException('流式视频转存失败');
+    if(!copy($real,$dest)) {@unlink($dest);throw new RuntimeException('流式视频转存失败');}
     @chmod($dest,0600);
     try {
         if(filesize($dest)!==$size) throw new RuntimeException('视频转存大小不一致');
