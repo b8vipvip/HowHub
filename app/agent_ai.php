@@ -48,9 +48,11 @@ PROMPT;
     ];
 }
 
-function agent_summary_html(array $review, string $url): string
+function agent_summary_html(array $review, string $url, array $attribution = []): string
 {
-    $html='<h2>'.h($review['title']).'</h2><p>'.h($review['summary']).'</p>';
+    if (!$attribution) $attribution=['source_url'=>$url,'mode'=>'summary'];
+    $html=agent_attribution_notice($attribution);
+    $html.='<h2>'.h($review['title']).'</h2><p>'.h($review['summary']).'</p>';
     if ($review['points']) {
         $html.='<h3>核心知识与方法</h3><ul>';
         foreach ($review['points'] as $item) $html.='<li>'.h($item).'</li>';
@@ -62,6 +64,6 @@ function agent_summary_html(array $review, string $url): string
         $html.='</ul>';
     }
     $html.='<blockquote><p>资料基于单一来源整理，AI 无法独立保证内容准确性。发布前请复核事实与使用许可。</p></blockquote>';
-    $html.='<p>资料来源：<a href="'.h($url).'">'.h($url).'</a></p>';
+    // Canonical source attribution remains at the top, not buried at the end.
     return sanitize_content($html);
 }
