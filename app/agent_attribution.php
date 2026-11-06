@@ -86,14 +86,15 @@ function agent_attribution_notice(array $meta): string
 function agent_preserve_source_notice(PDO $pdo,int $guideId,string $html): string
 {
     if ($guideId<1) return $html;
-    $q=$pdo->prepare("SELECT format_notes FROM agent_candidates WHERE guide_id=? LIMIT 1");
+    $q=$pdo->prepare("SELECT c.format_notes,c.url,s.rights_mode FROM agent_candidates c JOIN agent_sources s ON s.id=c.source_id WHERE c.guide_id=? LIMIT 1");
     $q->execute([$guideId]);
-    $json=$q->fetchColumn();
-    if (!is_string($json)) return $html;
-    $notes=json_decode($json,true);
+    $candidate=$q->fetch();
+    if (!$candidate) return $html;
+    $notes=json_decode((string)$candidate['format_notes'],true);
     $meta=is_array($notes) ? ($notes['attribution']??null) : null;
+    // Pre-upgrade Agent drafts also need a valid, permanent source notice.
     if (!is_array($meta) || empty($meta['source_url'])) {
-        throw new RuntimeException('无法找到 Agent 内容的原始出处记录，已拒绝覆盖文章');
+        $meta=['source_url'=>$candidate['url'],'mode'=>$candidate['rights_mode']];
     }
     // Strip the current notice (even when malformed) and recreate exactly
     // one canonical copy at the start. No user-created HTML can suppress it.
