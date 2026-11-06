@@ -62,6 +62,11 @@ function agent_runtime_report(PDO $pdo): array
     $config=ai_config();
     $check('ai_configured',!empty($config['configured']),
         !empty($config['configured'])?'已配置 AI 供应商（未测试语音和图像接口）':'尚未配置 AI 供应商');
+    $hasVideoProvider=setting('agent_ai_video_base','')!=='' &&
+        setting('agent_ai_video_key_cipher','')!=='' &&
+        setting('agent_ai_video_model','')!=='';
+    $check('ai_video_provider',$hasVideoProvider,
+        $hasVideoProvider?'已配置异步视频服务（未进行真实 API 测试）':'未配置异步视频模型供应商（默认关闭）');
     $report['checks']['search_api']=[
         'ok'=>agent_research_api_configured(),
         'message'=>agent_research_api_configured()?'已配置搜索 API（未连网测试）':'搜索 API 未配置，可禁用交叉检索',
@@ -74,6 +79,11 @@ function agent_runtime_report(PDO $pdo): array
         'image_pending'=>"SELECT COUNT(*) FROM agent_topic_ideas WHERE asset_status='pending' AND status='review'",
         'audio_pending'=>"SELECT COUNT(*) FROM agent_topic_av WHERE audio_status='pending'",
         'video_pending'=>"SELECT COUNT(*) FROM agent_topic_av WHERE video_status='pending'",
+        'ai_video_queued'=>"SELECT COUNT(*) FROM agent_ai_video_jobs WHERE status='queued'",
+        'ai_video_running'=>"SELECT COUNT(*) FROM agent_ai_video_jobs WHERE status='running'",
+        'ai_video_ready'=>"SELECT COUNT(*) FROM agent_ai_video_jobs WHERE status='ready'",
+        'ai_video_failed'=>"SELECT COUNT(*) FROM agent_ai_video_jobs WHERE status='failed'",
+        'original_documents'=>"SELECT COUNT(*) FROM agent_fact_documents",
     ] as $name=>$sql) {
         try {$report['queues'][$name]=(int)$pdo->query($sql)->fetchColumn();}
         catch(Throwable $e) {$report['queues'][$name]=null;}
@@ -85,6 +95,7 @@ function agent_runtime_report(PDO $pdo): array
         'audio'=>setting('agent_original_audio_enabled','0')==='1',
         'video'=>setting('agent_original_video_enabled','0')==='1',
         'crosscheck'=>setting('agent_fact_search_enabled','0')==='1',
+        'ai_video'=>setting('agent_ai_video_enabled','0')==='1',
     ];
     return $report;
 }
