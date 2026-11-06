@@ -92,7 +92,11 @@ function agent_topic_next(PDO $pdo): ?array
         $idea=$get->fetch();
         if ($idea) {
             $result=agent_ai_video_process($pdo,$modelJob,$idea);
-            return ['action'=>'model_video','topic_id'=>(int)$idea['id']]+$result;
+            // Daily paid-video cap must not starve ordinary article writing,
+            // quality review or the safe in-house FFmpeg pipeline.
+            if (($result['status']??'')!=='budget_exhausted') {
+                return ['action'=>'model_video','topic_id'=>(int)$idea['id']]+$result;
+            }
         }
     }
     $idea=$pdo->query("SELECT * FROM agent_topic_ideas WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
