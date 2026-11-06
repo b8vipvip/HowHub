@@ -33,6 +33,13 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_fact_auto_settings') {
+        $enabled=($post['enabled']??'')==='1';
+        $daily=min(8,max(0,(int)($post['daily']??2)));
+        set_setting('agent_fact_auto_daily',(string)$daily);
+        set_setting('agent_fact_auto_enabled',$enabled?'1':'0');
+        return '已保存自动原文事实核查设置；仅访问管理员已批准来源，每篇最多安排 4 次访问，结果仍需人工审核';
+    }
     if ($action==='topic_fact_document') {
         $out=agent_fact_document_add($pdo,$id,
             (int)($post['claim_index']??-1),
@@ -229,6 +236,18 @@ function agent_topic_admin_section(PDO $pdo): void
         '<label>创建任务的请求格式<select name="format"><option value="multipart" '.(setting('agent_ai_video_request_format','multipart')==='multipart'?'selected':'').'>multipart 表单</option><option value="json" '.(setting('agent_ai_video_request_format','multipart')==='json'?'selected':'').'>JSON</option></select></label>'.
         '<label>每日付费视频任务上限<input type="number" name="daily" min="0" max="4" value="'.$videoAIDaily.'"></label>'.
         '<button class="button secondary" type="submit">保存 AI 视频配置</button></form>';
+    $autoFactOn=setting('agent_fact_auto_enabled','0')==='1';
+    $autoFactMax=min(8,max(0,(int)setting('agent_fact_auto_daily','2')));
+    $factUsed=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_runs WHERE requested_at>?');
+    $factUsed->execute([time()-86400]);
+    echo '<h3>受控来源自动核查（默认关闭）</h3>';
+    echo '<p class="muted">仅为二次审稿仍有疑问的原创教程，从搜索索引线索中筛选管理员已登记并启用的网站，自动安排核查。遵守 robots.txt、站点与单页冷却期，每篇最多 4 条任务；无法核实的内容必须保留人工复核，绝不会自动标记为事实已认证或公开发布。</p>';
+    echo '<p class="muted">过去 24 小时实际核查任务调用：'.(int)$factUsed->fetchColumn().'/'.$autoFactMax.'</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+         '<input type="hidden" name="action" value="topic_fact_auto_settings">'.
+         '<label>启用自动原文核查<select name="enabled"><option value="0" '.(!$autoFactOn?'selected':'').'>关闭（仅手动核查）</option><option value="1" '.($autoFactOn?'selected':'').'>仅限已批准来源</option></select></label>'.
+         '<label>每日自动核查上限<input type="number" min="0" max="8" name="daily" value="'.$autoFactMax.'"></label>'.
+         '<button class="button secondary" type="submit">保存自动核查设置</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
@@ -258,6 +277,15 @@ function agent_topic_admin_section(PDO $pdo): void
             $qualityLookup->execute([$selected]);
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
+            $autoEvidence=agent_fact_auto_for_idea($pdo,$selected);
+            if ($autoEvidence) {
+                echo '<h4>自动原文核验队列（只有已经启用的来源可访问）</h4>';
+                foreach ($autoEvidence as $task) {
+                    echo '<p><small>主张序号 #'.((int)$task['claim_index']+1).' · '.h($task['status']).
+                        ' · 尝试 '.(int)$task['attempts'].' 次 · 最后状态 '.h($task['last_status']).
+                        ' · '.h($task['source_url']).'</small></p>';
+                }
+            }
             $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
             if($modelVideo) {
                 echo '<p class="muted">AI 视频模型任务：'.h($modelVideo['status']).'；模型：'.h($modelVideo['model']).
