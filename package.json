@@ -1,0 +1,9 @@
+{
+  "name": "howhub-optional-katex",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Optional local, offline KaTeX-to-MathML renderer for HowHub",
+  "dependencies": {
+    "katex": "0.19.1"
+  }
+}
