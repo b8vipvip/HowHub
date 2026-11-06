@@ -4,7 +4,7 @@ require dirname(__DIR__).'/app/bootstrap.php';
 $pdo=database();
 $oldOn=setting('agent_fact_auto_enabled','0');
 $oldDaily=setting('agent_fact_auto_daily','2');
-$ideaId=0;$sourceIds=[];$taskIds=[];
+$ideaId=0;$sourceIds=[];$taskIds=[];$extraIdeas=[];
 try {
     set_setting('agent_fact_auto_enabled','1');
     set_setting('agent_fact_auto_daily','2');
@@ -90,9 +90,50 @@ try {
     if(agent_fact_auto_step($pdo,$http,$verdict)!==null) {
         throw new RuntimeException('Disabled evidence agent must perform no autonomous work');
     }
+    // A revised quality review must invalidate old claim-index snapshots, then
+    // allow a fresh bounded plan without the old tasks counting against it.
+    set_setting('agent_fact_auto_enabled','1');
+    $revisedTime=time()+9;
+    $pdo->prepare('UPDATE agent_topic_quality SET checked_at=? WHERE idea_id=?')
+        ->execute([$revisedTime,$ideaId]);
+    $againCount=agent_fact_auto_plan($pdo,$ideaId);
+    if($againCount!==2) {
+        throw new RuntimeException('Revised quality audit could not safely re-plan older source URLs');
+    }
+    $taskStates=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_tasks
+        WHERE idea_id=? AND quality_checked_at=? AND status=?');
+    $taskStates->execute([$ideaId,$revisedTime,'queued']);
+    if((int)$taskStates->fetchColumn()!==2) {
+        throw new RuntimeException('Replanned evidence tasks do not match the revised quality snapshot');
+    }
+    // When evidence suggestions refer only to unapproved sites, the planner
+    // records an unmatched scan rather than repeatedly rescanning per tick.
+    $unmatched='CI未匹配受控来源'.bin2hex(random_bytes(5));
+    if(!agent_topic_enqueue($pdo,$unmatched,'','manual','知识','zh')) {
+        throw new RuntimeException('Could not create unmatched evidence idea');
+    }
+    $get->execute([$unmatched]);$extraId=(int)$get->fetch()['id'];
+    $extraIdeas[]=$extraId;
+    $pdo->prepare("UPDATE agent_topic_ideas SET status='review' WHERE id=?")->execute([$extraId]);
+    $pdo->prepare("INSERT INTO agent_topic_quality(idea_id,status,issues_json,evidence_json,checked_at)
+        VALUES(?,'needs_review',?,?,?)")->execute([
+            $extraId,
+            json_encode(['claims'=>[['claim'=>$claim,'finding'=>'unverified','source_indexes'=>[]]]],JSON_UNESCAPED_UNICODE),
+            json_encode([['url'=>'https://not-approved.example.com/guide','domain'=>'not-approved.example.com']],JSON_UNESCAPED_UNICODE),
+            time(),
+        ]);
+    if(agent_fact_auto_plan($pdo,$extraId)!==0 || agent_fact_auto_plan($pdo,$extraId)!==0) {
+        throw new RuntimeException('Unapproved evidence was unexpectedly added to the task queue');
+    }
+    $plan=$pdo->prepare('SELECT candidate_count,scanned_at FROM agent_fact_auto_plans WHERE idea_id=?');
+    $plan->execute([$extraId]);$planned=$plan->fetch();
+    if(!$planned || (int)$planned['candidate_count']!==0 || (int)$planned['scanned_at']<time()-30) {
+        throw new RuntimeException('Unmatched source plan did not persist its negative result');
+    }
     echo "Automatic primary-source evidence passed: opt-in, approved domains, one fetch/tick, budget and no auto-approval\n";
 } finally {
     if($ideaId) $pdo->prepare('DELETE FROM agent_topic_ideas WHERE id=?')->execute([$ideaId]);
+    foreach($extraIdeas as $extra) $pdo->prepare('DELETE FROM agent_topic_ideas WHERE id=?')->execute([$extra]);
     foreach($taskIds as $tid) {
         $pdo->prepare('DELETE FROM agent_fact_auto_runs WHERE task_id=?')->execute([$tid]);
     }
