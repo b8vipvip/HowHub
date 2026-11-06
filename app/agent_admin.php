@@ -94,7 +94,7 @@ function agent_admin_page(PDO $pdo): void
     agent_research_admin_section($pdo);
     agent_topic_admin_section($pdo);
 
-    echo '<section class="admin-panel"><h2>添加来源网站</h2><p class="muted">建议使用有公开 RSS/Atom/Sitemap 的官方知识库、开放教材或已经允许内容使用的网站。不限中文或英文。新来源默认为摘要模式并暂停。</p>';
+    echo '<section class="admin-panel"><h2>添加标题来源网站</h2><p class="muted">仅从管理员批准的 RSS/Atom 获取标题与问题；不打开文章正文，不下载第三方图片和视频。搜索 API 也可直接产生原创选题，无需逐站开启抓取。网站订阅仍须尊重 robots.txt 和访问条款。</p>';
     echo '<form method="post" action="/admin/agent/action" class="stack-form">'.csrf_input().'<input type="hidden" name="action" value="add">';
     echo '<label>来源网站 HTTPS 域名<input type="url" name="site" required placeholder="https://docs.example.org"></label>';
     echo '<label>RSS / Atom / Sitemap URL（可选；留空尝试 /sitemap.xml）<input type="url" name="feed" placeholder="https://docs.example.org/sitemap.xml"></label>';
@@ -108,7 +108,7 @@ function agent_admin_page(PDO $pdo): void
         $usedQuery->execute([$id,time()-86400]);
         $used=(int)$usedQuery->fetchColumn();
         echo '<tr><td><strong>'.h($s['origin']).'</strong><br><small>'.h($s['industry']).' · '.h($s['region']).'</small><br><small>'.h($s['feed_url'] ?: 'Sitemap 默认入口').'</small></td>';
-        echo '<td>'.($s['rights_mode']==='licensed'?'已记录转载许可':'仅原创摘要（不复制媒体）').'</td>';
+        echo '<td>'.(setting('agent_creation_mode','topic_only')==='topic_only'?'仅标题/问题（不抓取正文）':($s['rights_mode']==='licensed'?'已记录转载许可':'原创摘要')).'</td>';
         echo '<td>间隔 '.(int)$s['min_interval'].' 秒<br>24 小时已使用 '.$used.' / '.(int)$s['daily_limit'].' 次<br><small>下次最早：'.h(date('Y-m-d H:i',(int)$s['next_fetch'])).'</small></td>';
         echo '<td>'.($s['enabled']?'启用':'暂停').' / robots: '.h($s['robots_state']).'<br><small>'.h($s['last_message']).'</small></td>';
         echo '<td><form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="enable"><input type="hidden" name="id" value="'.$id.'"><input type="hidden" name="enabled" value="'.($s['enabled']?'0':'1').'"><button type="submit" class="button secondary">'.($s['enabled']?'暂停':'启用').'</button></form></td></tr>';
@@ -116,7 +116,7 @@ function agent_admin_page(PDO $pdo): void
         echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().'<input type="hidden" name="action" value="rights"><input type="hidden" name="id" value="'.$id.'"><label>素材许可<select name="mode"><option value="summary">原创摘要（默认）</option><option value="licensed" '.($s['rights_mode']==='licensed'?'selected':'').'>已取得转载授权</option></select></label><label>授权证据 / 许可链接<input name="evidence" maxlength="1000" value="'.h($s['rights_evidence']).'" placeholder="完整许可范围或书面授权编号"></label><button class="button secondary" type="submit">更新许可</button></form></td></tr>';
     }
     echo '</tbody></table></div></section>';
-    echo '<section class="admin-panel"><h2>AI 候选内容 / 待审核</h2><p class="muted">AI 评分并非事实核验；发布之前需检查事实、许可和媒体。授权媒体有待转存任务时不得先创建草稿。</p><div class="responsive-table"><table><thead><tr><th>内容</th><th>评分/状态</th><th>操作</th></tr></thead><tbody>';
+    echo '<section class="admin-panel"><h2>旧版全文导入历史候选（原创模式下暂停处理）</h2><p class="muted">为保护旧数据，历史候选仍可查询。新的原创选题不进入这里，不保留来源正文、原始多媒体或自动出处声明。</p><div class="responsive-table"><table><thead><tr><th>内容</th><th>评分/状态</th><th>操作</th></tr></thead><tbody>';
     foreach ($candidates as $c) {
         $id=(int)$c['id'];
         echo '<tr><td><strong>'.h($c['title'] ?: '未命名候选').'</strong><br><small>'.h($c['industry']).'</small><br><a href="'.h($c['url']).'" target="_blank" rel="noopener noreferrer nofollow">'.h(mb_substr($c['url'],0,120)).'</a></td>';
