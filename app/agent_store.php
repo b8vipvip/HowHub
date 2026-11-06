@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS agent_events (
 );
 SQL);
     agent_research_tables($pdo);
+    agent_topic_tables($pdo);
 }
 
 function agent_event(PDO $pdo, string $action, string $outcome, string $detail = '', int $source = 0, int $candidate = 0): void
