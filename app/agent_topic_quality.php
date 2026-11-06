@@ -82,7 +82,7 @@ RULES;
     return [$system,$user];
 }
 
-function agent_topic_quality_parse(array|string $raw): array
+function agent_topic_quality_parse(array|string $raw,array $evidence=[]): array
 {
     if (is_string($raw)) {
         if (strlen($raw)>25000) throw new RuntimeException('审稿返回内容过大');
@@ -104,9 +104,15 @@ function agent_topic_quality_parse(array|string $raw): array
         if (is_string($item)&&trim($item)!=='') $checklist[]=mb_substr(trim($item),0,260);
     }
     $risk=$raw['risk'];
-    $status=$raw['pass'] && $risk==='low' && !$issues ? 'reviewed' : 'needs_review';
+    $claims=agent_topic_claim_checks($raw,$evidence);
+    // Contradictory / unsupported concrete claims require manual attention.
+    // If search evidence was provided, a model that skips claim auditing cannot
+    // automatically clear the second-pass review either.
+    $unresolved=agent_topic_claims_need_review($claims) || ($evidence!==[] && !$claims);
+    if ($claims && in_array('conflicting_snippets',array_column($claims,'finding'),true)) $risk='high';
+    $status=$raw['pass'] && $risk==='low' && !$issues && !$unresolved ? 'reviewed' : 'needs_review';
     return ['status'=>$status,'risk'=>$risk,'issues'=>$issues,'checklist'=>$checklist,
-        'notes'=>mb_substr((string)($raw['notes']??''),0,450)];
+        'claims'=>$claims,'notes'=>mb_substr((string)($raw['notes']??''),0,450)];
 }
 
 /**
@@ -159,11 +165,12 @@ function agent_topic_quality_process(PDO $pdo,array $idea,?callable $ai=null,?ca
         $raw=$ai!==null ? $ai($system,$user) :
             ai_chat_content(['model'=>ai_config()['model'],
                 'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>$user]]]);
-        $out=agent_topic_quality_parse($raw);
+        $out=agent_topic_quality_parse($raw,$evidence);
         $pdo->prepare("UPDATE agent_topic_quality SET status=?,risk=?,issues_json=?,evidence_json=?,
             model_notes=?,checked_at=? WHERE idea_id=? AND status='pending'")->execute([
                 $out['status'],$out['risk'],
-                json_encode(['issues'=>$out['issues'],'checklist'=>$out['checklist']],JSON_UNESCAPED_UNICODE),
+                json_encode(['issues'=>$out['issues'],'checklist'=>$out['checklist'],
+                    'claims'=>$out['claims']],JSON_UNESCAPED_UNICODE),
                 json_encode($evidence,JSON_UNESCAPED_UNICODE),
                 $out['notes'],time(),$id,
             ]);
