@@ -54,6 +54,10 @@ function agent_research_tick(PDO $pdo, ?callable $searchFixture = null,
             if (!is_array($results)) throw new RuntimeException('搜索 API 缺少 web.results 列表');
             foreach (array_slice($results,0,12) as $entry) {
                 if (!is_array($entry)) continue;
+                if (setting('agent_creation_mode','topic_only')==='topic_only') {
+                    agent_topic_enqueue($pdo,(string)($entry['title']??''),(string)($entry['url']??''),
+                        'search_api',(string)$topic['topic'],(string)$topic['language']);
+                }
                 if (agent_research_propose($pdo,(string)($entry['url']??''),
                     (string)($entry['title']??''),(string)($entry['description']??''),
                     $topic['topic'],$topic['language'],'search_api',
