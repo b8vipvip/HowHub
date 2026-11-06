@@ -26,7 +26,38 @@ function agent_math_atom(string $s, int &$i, int $depth): string
             $down=agent_math_atom($s,$i,$depth+1);
             return '<mfrac>'.$up.$down.'</mfrac>';
         }
-        if ($macro==='sqrt') return '<msqrt>'.agent_math_atom($s,$i,$depth+1).'</msqrt>';
+        if ($macro==='sqrt') {
+            if (($s[$i]??'')==='[') {
+                $end=strpos($s,']',$i+1);
+                if($end===false || $end-$i>30) throw new RuntimeException('根指数缺少结束标记');
+                $index=substr($s,$i+1,$end-$i-1);
+                $k=0;$root=agent_math_sequence($index,$k,$depth+1);
+                if($root==='' || $k!==strlen($index)) throw new RuntimeException('根指数不是受支持公式');
+                $i=$end+1;
+                return '<mroot>'.agent_math_atom($s,$i,$depth+1).'<mrow>'.$root.'</mrow></mroot>';
+            }
+            return '<msqrt>'.agent_math_atom($s,$i,$depth+1).'</msqrt>';
+        }
+        if (in_array($macro,['overline','underline','hat','vec','bar','tilde'],true)) {
+            $value=agent_math_atom($s,$i,$depth+1);
+            $glyph=match($macro) {
+                'overline','bar'=>'¯','hat'=>'^','vec'=>'→','tilde'=>'˜',default=>'＿',
+            };
+            return $macro==='underline'?
+                '<munder>'.$value.'<mo>'.h($glyph).'</mo></munder>':
+                '<mover>'.$value.'<mo>'.h($glyph).'</mo></mover>';
+        }
+        if ($macro==='mathbb') {
+            if(($s[$i]??'')!=='{') throw new RuntimeException('黑板粗体符号必须使用大括号');
+            $end=strpos($s,'}',$i+1);
+            if($end===false) throw new RuntimeException('黑板粗体右括号缺失');
+            $char=substr($s,$i+1,$end-$i-1);
+            $symbols=['R'=>'ℝ','N'=>'ℕ','Z'=>'ℤ','Q'=>'ℚ','C'=>'ℂ','P'=>'ℙ'];
+            if(!isset($symbols[$char])) throw new RuntimeException('黑板粗体符号不在白名单');
+            $i=$end+1;
+            return '<mi>'.h($symbols[$char]).'</mi>';
+        }
+
         if (in_array($macro,['text','mathrm','operatorname'],true)) {
             if (($s[$i]??'')!=='{') throw new RuntimeException('数学文本宏缺少大括号');
             $end=strpos($s,'}',$i+1);
@@ -37,12 +68,18 @@ function agent_math_atom(string $s, int &$i, int $depth): string
             return '<mtext>'.h($value).'</mtext>';
         }
         $names=['alpha'=>'α','beta'=>'β','gamma'=>'γ','delta'=>'δ','theta'=>'θ',
-            'lambda'=>'λ','mu'=>'μ','pi'=>'π','sigma'=>'σ','omega'=>'ω','phi'=>'φ'];
+            'lambda'=>'λ','mu'=>'μ','pi'=>'π','sigma'=>'σ','omega'=>'ω','phi'=>'φ',
+            'epsilon'=>'ε','varepsilon'=>'ϵ','rho'=>'ρ','tau'=>'τ','Delta'=>'Δ','Gamma'=>'Γ',
+            'Omega'=>'Ω','Phi'=>'Φ','Psi'=>'Ψ','psi'=>'ψ','eta'=>'η','xi'=>'ξ','kappa'=>'κ'];
         $operators=['times'=>'×','cdot'=>'·','leq'=>'≤','geq'=>'≥','neq'=>'≠',
             'pm'=>'±','infty'=>'∞','to'=>'→','sum'=>'∑','prod'=>'∏','int'=>'∫',
             'lim'=>'lim','partial'=>'∂','nabla'=>'∇','approx'=>'≈','equiv'=>'≡',
             'subseteq'=>'⊆','supseteq'=>'⊇','in'=>'∈','forall'=>'∀','exists'=>'∃',
-            'rightarrow'=>'→','leftarrow'=>'←','leftrightarrow'=>'↔','cdots'=>'⋯'];
+            'rightarrow'=>'→','leftarrow'=>'←','leftrightarrow'=>'↔','cdots'=>'⋯',
+            'le'=>'≤','ge'=>'≥','land'=>'∧','lor'=>'∨','neg'=>'¬','cup'=>'∪','cap'=>'∩',
+            'emptyset'=>'∅','degree'=>'°','therefore'=>'∴','because'=>'∵',
+            'sin'=>'sin','cos'=>'cos','tan'=>'tan','ln'=>'ln','log'=>'log','exp'=>'exp',
+            'max'=>'max','min'=>'min','det'=>'det'];
         if (isset($names[$macro])) return '<mi>'.h($names[$macro]).'</mi>';
         if (isset($operators[$macro])) return '<mo>'.h($operators[$macro]).'</mo>';
         throw new RuntimeException('暂不支持的 TeX 公式指令');
