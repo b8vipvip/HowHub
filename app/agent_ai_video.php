@@ -261,6 +261,15 @@ function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixtu
     $lease=agent_ai_video_claim($pdo,$id,$state,$now);
     if($lease===null) return ['status'=>'busy'];
     try {
+        // Another worker may have fetched the same status while the original
+        // task was still obtaining its remote ID. After acquiring the lease,
+        // NEVER trust the stale passed-in snapshot for billing or polling.
+        $current=$pdo->prepare('SELECT * FROM agent_ai_video_jobs WHERE idea_id=? AND lease_token=?');
+        $current->execute([$id,$lease]);
+        $latest=$current->fetch();
+        if(!$latest) throw new RuntimeException('视频任务执行权状态不一致');
+        $job=$latest;
+        $state=(string)$job['status'];
         $config=agent_ai_video_config();
         if($state==='queued') {
             if(!agent_ai_video_daily_budget($pdo,$id,$now)) return ['status'=>'budget_exhausted'];
