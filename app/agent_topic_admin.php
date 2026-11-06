@@ -87,6 +87,17 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         }
         set_setting('agent_ai_video_request_format',($post['format']??'multipart')==='json'?'json':'multipart');
         set_setting('agent_ai_video_daily',(string)min(4,max(0,(int)($post['daily']??1))));
+        $seconds=(int)($post['seconds']??4);
+        $size=(string)($post['size']??'1280x720');
+        $maxMb=(int)($post['max_mb']??18);
+        if(!in_array($seconds,[4,8,12,16,20,30,60,90,120],true) ||
+            !in_array($size,['1280x720','720x1280','1920x1080'],true) ||
+            $maxMb<1 || $maxMb>128) {
+            throw new InvalidArgumentException('视频时长、尺寸或容量配置不符合受控范围');
+        }
+        set_setting('agent_ai_video_seconds',(string)$seconds);
+        set_setting('agent_ai_video_size',$size);
+        set_setting('agent_ai_video_max_mb',(string)$maxMb);
         if ($enabled) agent_ai_video_config();
         set_setting('agent_ai_video_enabled',$enabled?'1':'0');
         return '已保存异步 AI 视频供应商：只对新创建的原创教程生效；正式视频 API 需供应商实际支持';
@@ -247,6 +258,14 @@ function agent_topic_admin_section(PDO $pdo): void
         '<label>视频模型 ID<input name="model" maxlength="100" value="'.h($videoAIModel).'" placeholder="供应商实际提供的模型 ID"></label>'.
         '<label>视频独立 API Key<input type="password" autocomplete="new-password" name="api_key" maxlength="4096" placeholder="'.($videoAIKey?'已加密保存，留空不更改':'输入供应商的密钥').'"></label>'.
         '<label>创建任务的请求格式<select name="format"><option value="multipart" '.(setting('agent_ai_video_request_format','multipart')==='multipart'?'selected':'').'>multipart 表单</option><option value="json" '.(setting('agent_ai_video_request_format','multipart')==='json'?'selected':'').'>JSON</option></select></label>'.
+        '<label>生成时长（依供应商模型支持）<select name="seconds">'.
+          implode('',array_map(static fn($n)=>'<option value="'.$n.'" '.((int)setting('agent_ai_video_seconds','4')===$n?'selected':'').'>'.$n.' 秒</option>',
+            [4,8,12,16,20,30,60,90,120])).'</select></label>'.
+        '<label>画面尺寸<select name="size">'.
+          implode('',array_map(static fn($v)=>'<option value="'.$v.'" '.(setting('agent_ai_video_size','1280x720')===$v?'selected':'').'>'.$v.'</option>',
+            ['1280x720','720x1280','1920x1080'])).'</select></label>'.
+        '<label>单文件最大下载容量 MB<input type="number" name="max_mb" min="1" max="128" value="'.min(128,max(1,(int)setting('agent_ai_video_max_mb','18'))).'"></label>'.
+        '<p class="muted">时长与画幅由第三方模型决定是否接受。长视频按服务商实际计费；下载最多 128MB，以临时磁盘流式接收，不占用等量 PHP 内存。该设置仅影响新任务。</p>'.
         '<label>每日付费视频任务上限<input type="number" name="daily" min="0" max="4" value="'.$videoAIDaily.'"></label>'.
         '<button class="button secondary" type="submit">保存 AI 视频配置</button></form>';
     $autoFactOn=setting('agent_fact_auto_enabled','0')==='1';
