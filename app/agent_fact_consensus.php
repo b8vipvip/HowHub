@@ -31,8 +31,10 @@ function agent_fact_consensus_for_idea(PDO $pdo,int $ideaId,?int $now=null): arr
         foreach($docs as $doc) {
             if($doc['claim_text']!==$text) continue;
             $host=strtolower((string)$doc['source_host']);
+            $reviewChecked=(int)$record['checked_at'];
             $current=(int)$doc['retrieved_at']>=$cutoff &&
-                (int)$doc['retrieved_at']<=$now+300;
+                (int)$doc['retrieved_at']<=$now+300 &&
+                ($reviewChecked<=0 || (int)$doc['retrieved_at']>=$reviewChecked);
             $approved=$doc['enabled']!==null && (int)$doc['enabled']===1
                 && is_string($doc['origin']) && $doc['origin']!==''
                 && agent_same_origin((string)$doc['source_url'],(string)$doc['origin']);
