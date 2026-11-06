@@ -8,10 +8,12 @@ declare(strict_types=1);
  */
 function agent_attribution_from_page(string $html, string $url, array $source = []): array
 {
-    $origin=agent_origin($url);
+    $parsed=parse_url(import_page_url($url));
+    $host=strtolower((string)($parsed['host']??''));
+    if ($host==='') throw new RuntimeException('来源域名无效');
     $result=[
         'source_url'=>$url,
-        'site_name'=>(string)parse_url($origin,PHP_URL_HOST),
+        'site_name'=>$host,
         'author'=>'',
         'published'=>'',
         'license_url'=>'',
