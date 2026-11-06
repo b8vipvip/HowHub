@@ -49,6 +49,7 @@ SQL);
     agent_ai_video_tables($pdo);
     agent_fact_documents_tables($pdo);
     agent_fact_auto_tables($pdo);
+    agent_diagram_tables($pdo);
 }
 
 function agent_topic_clean_title(string $raw): string
