@@ -46,6 +46,14 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         $result=agent_diagram_process($pdo,$id);
         return ($result['status']??'')==='complete'?'已生成或复用本站原创的安全流程 PNG':'没有可渲染的图源码';
     }
+    if ($action==='topic_katex_settings') {
+        $enable=($post['enabled']??'')==='1';
+        if($enable && !agent_katex_available()) {
+            throw new RuntimeException('未安装本地 Node/KaTeX；请先按 README 安装离线依赖再启用');
+        }
+        set_setting('agent_katex_enabled',$enable?'1':'0');
+        return '已保存公式渲染方式；原有 MathML 和可编辑源码始终保留';
+    }
     if ($action==='topic_fact_evidence_settings') {
         $days=min(180,max(7,(int)($post['days']??30)));
         set_setting('agent_fact_evidence_days',(string)$days);
@@ -297,6 +305,13 @@ function agent_topic_admin_section(PDO $pdo): void
          '<label>每日图形数量<input type="number" min="0" max="8" name="daily" value="'.$diagramDaily.'"></label>'.
          '<button class="button secondary" type="submit">保存图形渲染设置</button></form>';
     $evidenceDays=min(180,max(7,(int)setting('agent_fact_evidence_days','30')));
+    $katexOn=setting('agent_katex_enabled','0')==='1';
+    echo '<h3>可选本地 KaTeX 高保真公式（服务器预渲染 MathML）</h3>';
+    echo '<p class="muted">安装固定版本 KaTeX 后，在服务器离线解析更复杂的 LaTeX 为可访问 MathML。禁止不可信的 URL、宏文件与外部资源；遇到异常自动回退到内置解析器。无需 CDN、在线 JavaScript 或外部绘图服务。安装状态：'.(agent_katex_available()?'本地模块可用':'尚未安装本地模块').'</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_katex_settings">'.
+        '<label>使用本地 KaTeX<select name="enabled"><option value="0" '.(!$katexOn?'selected':'').'>关闭（内置 MathML）</option><option value="1" '.($katexOn?'selected':'').'>开启（需要安装 KaTeX）</option></select></label>'.
+        '<button class="button secondary" type="submit">保存高保真公式设置</button></form>';
     echo '<h3>原始资料有效期与独立站点交叉核查</h3>';
     echo '<p class="muted">同一域名只计为一个来源；两个不同已启用站点的原始文档一致时，才记为“跨来源支持线索”；来源被停用、证据过期或文档冲突时自动降级。绝不直接作为事实认证或发布许可。</p>';
     echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
