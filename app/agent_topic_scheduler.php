@@ -76,6 +76,25 @@ function agent_topic_next(PDO $pdo): ?array
         $result=agent_topic_video_process($pdo,$video);
         return ['action'=>'original_video','topic_id'=>(int)$video['id']]+$result;
     }
+    // AI video tasks are asynchronous: one create/check/download per tick,
+    // no long poll loops and no arbitrary redirect URLs from a model.
+    $modelJob=$pdo->query("SELECT j.* FROM agent_ai_video_jobs j
+        JOIN agent_topic_ideas i ON i.id=j.idea_id
+        LEFT JOIN agent_topic_quality q ON q.idea_id=i.id
+        WHERE i.status='review' AND j.status IN ('queued','running','ready')
+          AND j.next_check<=strftime('%s','now')
+          AND i.asset_status!='pending'
+          AND (q.status IS NULL OR q.status IN ('reviewed','waived'))
+        ORDER BY j.next_check ASC,j.idea_id ASC LIMIT 1")->fetch();
+    if ($modelJob) {
+        $get=$pdo->prepare('SELECT * FROM agent_topic_ideas WHERE id=?');
+        $get->execute([(int)$modelJob['idea_id']]);
+        $idea=$get->fetch();
+        if ($idea) {
+            $result=agent_ai_video_process($pdo,$modelJob,$idea);
+            return ['action'=>'model_video','topic_id'=>(int)$idea['id']]+$result;
+        }
+    }
     $idea=$pdo->query("SELECT * FROM agent_topic_ideas WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
     if (!$idea) return null;
     if (!agent_topic_budget_take($pdo,'article',(int)$idea['id'])) return null;
