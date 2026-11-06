@@ -8,6 +8,7 @@ declare(strict_types=1);
 function agent_research_tables(PDO $pdo): void
 {
     $pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS agent_research_meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS agent_research_topics (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  topic TEXT NOT NULL,
@@ -45,6 +46,8 @@ CREATE TABLE IF NOT EXISTS agent_research_runs (
 );
 CREATE INDEX IF NOT EXISTS agent_research_runs_day ON agent_research_runs(created_at);
 SQL);
+    $seeded=$pdo->query("SELECT value FROM agent_research_meta WHERE key='initial_topics_seeded'")->fetchColumn();
+    if ($seeded!==false) return;
     $topics=[
         ['家电设置与维修教程','zh','CN'],['软件操作与排障','zh','CN'],
         ['汽车维护与诊断','zh','CN'],['烹饪方法与烘焙','zh','CN'],
@@ -58,6 +61,7 @@ SQL);
     ];
     $insert=$pdo->prepare('INSERT OR IGNORE INTO agent_research_topics(topic,language,region) VALUES (?,?,?)');
     foreach($topics as $entry) $insert->execute($entry);
+    $pdo->exec("INSERT OR IGNORE INTO agent_research_meta(key,value) VALUES ('initial_topics_seeded','1')");
 }
 
 function agent_research_propose(PDO $pdo, string $url, string $title, string $snippet,
