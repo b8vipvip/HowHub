@@ -42,6 +42,12 @@ function agent_topic_next(PDO $pdo): ?array
         $result=agent_topic_quality_process($pdo,$audit);
         return ['action'=>'quality_review','topic_id'=>(int)$audit['id']]+$result;
     }
+    // Only explicitly enabled, already-approved sources can be checked.
+    // One bounded document/robots operation per scheduled tick, never mass crawl.
+    $fact=agent_fact_auto_step($pdo);
+    if ($fact!==null) return $fact;
+    $diagram=agent_diagram_next($pdo);
+    if ($diagram!==null) return $diagram;
     // Settle outstanding optional pictures before issuing new text jobs.
     $pending=$pdo->query("SELECT i.* FROM agent_topic_ideas i
         LEFT JOIN agent_topic_quality q ON q.idea_id=i.id

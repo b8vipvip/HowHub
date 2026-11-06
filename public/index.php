@@ -135,7 +135,8 @@ if (in_array($method,['GET','HEAD'],true) && preg_match('~^/media/stream/([1-9][
     $file=media_file_path($asset);
     if (!$file) error_page(404,'媒体文件不存在','找不到存储文件');
     $size=filesize($file);
-    if ($size===false || $size<128 || $size>30*1024*1024) error_page(404,'媒体不可用','媒体文件超出可播放范围');
+    $streamMax=$asset['mime']==='video/mp4'?128*1024*1024:30*1024*1024;
+    if ($size===false || $size<128 || $size>$streamMax) error_page(404,'媒体不可用','媒体文件超出可播放范围');
     $start=0;$end=$size-1;$partial=false;
     $range=(string)($_SERVER['HTTP_RANGE']??'');
     if ($range!=='') {

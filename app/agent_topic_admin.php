@@ -33,6 +33,26 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_diagram_settings') {
+        set_setting('agent_diagram_auto_enabled',($post['enabled']??'')==='1'?'1':'0');
+        set_setting('agent_diagram_daily',(string)min(8,max(0,(int)($post['daily']??4))));
+        return '已更新 Graphviz 图形渲染策略；仅对本站原创的安全流程图与思维导图生效';
+    }
+    if ($action==='topic_diagram_generate') {
+        if(url_import_bin('dot')==='') throw new RuntimeException('服务器没有 Graphviz（dot），无法生成 PNG');
+        if(!agent_diagram_daily_reserve($pdo,$id)) throw new RuntimeException('今日 Graphviz 渲染预算已用完');
+        $pdo->prepare("DELETE FROM agent_diagram_images WHERE idea_id=? AND status IN ('failed','skipped')")
+            ->execute([$id]);
+        $result=agent_diagram_process($pdo,$id);
+        return ($result['status']??'')==='complete'?'已生成或复用本站原创的安全流程 PNG':'没有可渲染的图源码';
+    }
+    if ($action==='topic_fact_auto_settings') {
+        $enabled=($post['enabled']??'')==='1';
+        $daily=min(8,max(0,(int)($post['daily']??2)));
+        set_setting('agent_fact_auto_daily',(string)$daily);
+        set_setting('agent_fact_auto_enabled',$enabled?'1':'0');
+        return '已保存自动原文事实核查设置；仅访问管理员已批准来源，每篇最多安排 4 次访问，结果仍需人工审核';
+    }
     if ($action==='topic_fact_document') {
         $out=agent_fact_document_add($pdo,$id,
             (int)($post['claim_index']??-1),
@@ -67,6 +87,17 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         }
         set_setting('agent_ai_video_request_format',($post['format']??'multipart')==='json'?'json':'multipart');
         set_setting('agent_ai_video_daily',(string)min(4,max(0,(int)($post['daily']??1))));
+        $seconds=(int)($post['seconds']??4);
+        $size=(string)($post['size']??'1280x720');
+        $maxMb=(int)($post['max_mb']??18);
+        if(!in_array($seconds,[4,8,12,16,20,30,60,90,120],true) ||
+            !in_array($size,['1280x720','720x1280','1920x1080'],true) ||
+            $maxMb<1 || $maxMb>128) {
+            throw new InvalidArgumentException('视频时长、尺寸或容量配置不符合受控范围');
+        }
+        set_setting('agent_ai_video_seconds',(string)$seconds);
+        set_setting('agent_ai_video_size',$size);
+        set_setting('agent_ai_video_max_mb',(string)$maxMb);
         if ($enabled) agent_ai_video_config();
         set_setting('agent_ai_video_enabled',$enabled?'1':'0');
         return '已保存异步 AI 视频供应商：只对新创建的原创教程生效；正式视频 API 需供应商实际支持';
@@ -227,8 +258,39 @@ function agent_topic_admin_section(PDO $pdo): void
         '<label>视频模型 ID<input name="model" maxlength="100" value="'.h($videoAIModel).'" placeholder="供应商实际提供的模型 ID"></label>'.
         '<label>视频独立 API Key<input type="password" autocomplete="new-password" name="api_key" maxlength="4096" placeholder="'.($videoAIKey?'已加密保存，留空不更改':'输入供应商的密钥').'"></label>'.
         '<label>创建任务的请求格式<select name="format"><option value="multipart" '.(setting('agent_ai_video_request_format','multipart')==='multipart'?'selected':'').'>multipart 表单</option><option value="json" '.(setting('agent_ai_video_request_format','multipart')==='json'?'selected':'').'>JSON</option></select></label>'.
+        '<label>生成时长（依供应商模型支持）<select name="seconds">'.
+          implode('',array_map(static fn($n)=>'<option value="'.$n.'" '.((int)setting('agent_ai_video_seconds','4')===$n?'selected':'').'>'.$n.' 秒</option>',
+            [4,8,12,16,20,30,60,90,120])).'</select></label>'.
+        '<label>画面尺寸<select name="size">'.
+          implode('',array_map(static fn($v)=>'<option value="'.$v.'" '.(setting('agent_ai_video_size','1280x720')===$v?'selected':'').'>'.$v.'</option>',
+            ['1280x720','720x1280','1920x1080'])).'</select></label>'.
+        '<label>单文件最大下载容量 MB<input type="number" name="max_mb" min="1" max="128" value="'.min(128,max(1,(int)setting('agent_ai_video_max_mb','18'))).'"></label>'.
+        '<p class="muted">时长与画幅由第三方模型决定是否接受。长视频按服务商实际计费；下载最多 128MB，以临时磁盘流式接收，不占用等量 PHP 内存。该设置仅影响新任务。</p>'.
         '<label>每日付费视频任务上限<input type="number" name="daily" min="0" max="4" value="'.$videoAIDaily.'"></label>'.
         '<button class="button secondary" type="submit">保存 AI 视频配置</button></form>';
+    $autoFactOn=setting('agent_fact_auto_enabled','0')==='1';
+    $autoFactMax=min(8,max(0,(int)setting('agent_fact_auto_daily','2')));
+    $factUsed=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_runs WHERE requested_at>?');
+    $factUsed->execute([time()-86400]);
+    echo '<h3>受控来源自动核查（默认关闭）</h3>';
+    echo '<p class="muted">仅为二次审稿仍有疑问的原创教程，从搜索索引线索中筛选管理员已登记并启用的网站，自动安排核查。遵守 robots.txt、站点与单页冷却期，每篇最多 4 条任务；无法核实的内容必须保留人工复核，绝不会自动标记为事实已认证或公开发布。</p>';
+    echo '<p class="muted">过去 24 小时实际核查任务调用：'.(int)$factUsed->fetchColumn().'/'.$autoFactMax.'</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+         '<input type="hidden" name="action" value="topic_fact_auto_settings">'.
+         '<label>启用自动原文核查<select name="enabled"><option value="0" '.(!$autoFactOn?'selected':'').'>关闭（仅手动核查）</option><option value="1" '.($autoFactOn?'selected':'').'>仅限已批准来源</option></select></label>'.
+         '<label>每日自动核查上限<input type="number" min="0" max="8" name="daily" value="'.$autoFactMax.'"></label>'.
+         '<button class="button secondary" type="submit">保存自动核查设置</button></form>';
+    $diagramOn=setting('agent_diagram_auto_enabled','0')==='1';
+    $diagramDaily=min(8,max(0,(int)setting('agent_diagram_daily','4')));
+    $graphBin=url_import_bin('dot')!=='';
+    echo '<h3>可选高保真节点与连线 PNG（本地 Graphviz）</h3>';
+    echo '<p class="muted">对原创流程图或思维导图在本站绘制真实的节点连线 PNG，保留 Mermaid 原始源码以便修改。只支持通过白名单解析的分支图与树状导图，不会执行任意 Mermaid/SVG/JavaScript。需要安装 graphviz；若没有该程序则沿用原有 HTML 可访问关系图。</p>';
+    echo '<p class="muted">Graphviz 状态：'.($graphBin?'已安装':'未安装').'；每日生成上限：'.$diagramDaily.'；功能默认关闭</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+         '<input type="hidden" name="action" value="topic_diagram_settings">'.
+         '<label>自动生成原创关系图<select name="enabled"><option value="0" '.(!$diagramOn?'selected':'').'>关闭（保留 HTML 原生预览）</option><option value="1" '.($diagramOn?'selected':'').'>开启（需 dot）</option></select></label>'.
+         '<label>每日图形数量<input type="number" min="0" max="8" name="daily" value="'.$diagramDaily.'"></label>'.
+         '<button class="button secondary" type="submit">保存图形渲染设置</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
@@ -258,6 +320,25 @@ function agent_topic_admin_section(PDO $pdo): void
             $qualityLookup->execute([$selected]);
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
+            $autoEvidence=agent_fact_auto_for_idea($pdo,$selected);
+            if ($autoEvidence) {
+                echo '<h4>自动原文核验队列（只有已经启用的来源可访问）</h4>';
+                foreach ($autoEvidence as $task) {
+                    echo '<p><small>主张序号 #'.((int)$task['claim_index']+1).' · '.h($task['status']).
+                        ' · 尝试 '.(int)$task['attempts'].' 次 · 最后状态 '.h($task['last_status']).
+                        ' · '.h($task['source_url']).'</small></p>';
+                }
+            }
+            $diagramLookup=$pdo->prepare('SELECT status,image_url FROM agent_diagram_images WHERE idea_id=?');
+            $diagramLookup->execute([$selected]);$existingDiagram=$diagramLookup->fetch();
+            if($existingDiagram) echo '<p class="muted">Graphviz 图片：'.h($existingDiagram['status']).
+                ' '.h($existingDiagram['image_url']).'</p>';
+            if($item['status']==='review' && $graphBin && (!$existingDiagram || $existingDiagram['status']!=='complete')) {
+                echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                     '<input type="hidden" name="action" value="topic_diagram_generate">'.
+                     '<input type="hidden" name="id" value="'.$selected.'">'.
+                     '<button class="button secondary" type="submit">生成首张原创流程/思维导图 PNG</button></form>';
+            }
             $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
             if($modelVideo) {
                 echo '<p class="muted">AI 视频模型任务：'.h($modelVideo['status']).'；模型：'.h($modelVideo['model']).
