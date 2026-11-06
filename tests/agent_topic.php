@@ -125,7 +125,11 @@ try {
     if (!agent_topic_enqueue($pdo,$manualTitle,'','manual','IT','zh')) throw new RuntimeException('Unable to queue second original idea');
     $new=$pdo->query('SELECT * FROM agent_topic_ideas WHERE raw_title='.$pdo->quote($manualTitle))->fetch();
     $topicIds[]=(int)$new['id'];
-    $generated=agent_topic_process($pdo,$new,$ai);
+    $independent=$json;
+    $independent['title']='无线连接结构示意及家庭设备检查步骤';
+    $independent['summary']=str_repeat('这篇文章重新分析网络拓扑的基础概念，并从设备连接路径入手解释常见问题。',3);
+    $independent['sections'][1]['paragraphs'][0]=str_repeat('原创网络概念与设备连接流程说明。',8);
+    $generated=agent_topic_process($pdo,$new,static fn(string $system,string $user):array=>$independent);
     if ($generated['status']!=='review' || !$generated['image_pending']) throw new RuntimeException('Original illustration job was not queued');
     $s->execute([$new['id']]);$new=$s->fetch();
     try { agent_topic_approve($pdo,(int)$new['id']);throw new LogicException('Approved before illustration completed');}
