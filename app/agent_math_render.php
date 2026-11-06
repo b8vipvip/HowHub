@@ -31,6 +31,7 @@ function agent_math_atom(string $s, int &$i, int $depth): string
                 $end=strpos($s,']',$i+1);
                 if($end===false || $end-$i>30) throw new RuntimeException('根指数缺少结束标记');
                 $index=substr($s,$i+1,$end-$i-1);
+                if ($index==='' || preg_match('/\\s/u',$index)) throw new RuntimeException('根指数不能包含空白或空表达式');
                 $k=0;$root=agent_math_sequence($index,$k,$depth+1);
                 if($root==='' || $k!==strlen($index)) throw new RuntimeException('根指数不是受支持公式');
                 $i=$end+1;
