@@ -56,14 +56,11 @@ try {
         static fn(string $s,string $u):array=>['verdict'=>'unclear','reason'=>'没有特定设备型号'])['verdict']!=='unclear') {
         throw new RuntimeException('Uncertain evidence was incorrectly forced to supports');
     }
-    if(agent_fact_page_excerpt('<html><script>x</script></html>','text/html')!=='') {
-        throw new RuntimeException('Invalid document was accepted');
-    }
+    $rejected=false;
+    try {agent_fact_page_excerpt('<html><script>x</script></html>','text/html');}
+    catch(RuntimeException $e) {$rejected=true;}
+    if(!$rejected) throw new RuntimeException('Invalid source document was accepted');
     echo "Source fact evidence passed: approved site only, one bounded request, no JS, private digest and dedupe\n";
-} catch(Throwable $e) {
-    // Page parser throws on insufficient text; confirm as part of the test.
-    if($e->getMessage()==='网页正文不足') {}
-    else throw $e;
 } finally {
     if($ideaId) $pdo->prepare('DELETE FROM agent_topic_ideas WHERE id=?')->execute([$ideaId]);
     if($sourceId) $pdo->prepare('DELETE FROM agent_sources WHERE id=?')->execute([$sourceId]);
