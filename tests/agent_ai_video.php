@@ -69,6 +69,12 @@ try {
         !str_contains($idea['html'],'概念动画') || str_contains($idea['html'],'source_url')) {
         throw new RuntimeException('Generated video player not attached with distinct caution label');
     }
+    // Reapplying an already delivered file cannot duplicate playback widgets.
+    agent_topic_av_append($pdo,$id,'video',$done['url'],'generated');
+    $q->execute([$title]);$same=$q->fetch();
+    if(substr_count($same['html'],'<video')!==1) {
+        throw new RuntimeException('Video delivery re-entry caused duplicated players');
+    }
     try{agent_ai_video_job_validate(['id'=>'https://evil.example/xx','status'=>'completed']);
         throw new LogicException('Unsafe ID accepted');
     }catch(RuntimeException $e){}
