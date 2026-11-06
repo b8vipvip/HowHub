@@ -101,6 +101,8 @@ function agent_topic_av_append(PDO $pdo,int $id,string $kind,string $url,string 
         throw new RuntimeException('原创媒体地址不符合本站播放器规范');
     }
     $stream='/media/stream/'.$match[1];
+    // Retry-safe: do not append a second player if the same locally archived media is already present.
+    if (str_contains($html,'src="'.$stream.'"')) return;
     $player=$kind==='video' ?
         '<figure><video controls preload="metadata" playsinline src="'.h($stream).'"></video>'.
         '<figcaption>'.h($notice).'</figcaption></figure>' :
