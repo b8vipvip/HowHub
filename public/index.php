@@ -635,6 +635,7 @@ if ($path === '/admin/guides/save' && $method === 'POST') {
     $slug = make_slug(mb_substr(trim((string)($_POST['slug'] ?? '')) ?: $title, 0, 180));
     $summary = mb_substr(trim((string)($_POST['summary'] ?? '')), 0, 450);
     $body = sanitize_content((string)($_POST['body_html'] ?? ''));
+    if ($id>0) $body=agent_preserve_source_notice($pdo,$id,$body);
     $cover = safe_image((string)($_POST['cover_image'] ?? ''));
     $tags = mb_substr(trim((string)($_POST['tags'] ?? '')), 0, 255);
     $category = (int)($_POST['category_id'] ?? 0);
