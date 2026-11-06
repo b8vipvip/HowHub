@@ -315,6 +315,39 @@ function agent_topic_admin_section(PDO $pdo): void
                         echo '</p>';
                     }
                 }
+                if ($claims) {
+                    echo '<h4>指定已批准的来源网站，核查原始网页（人工触发）</h4>';
+                    echo '<p class="muted">仅访问管理员启用的来源站点；先检查 robots.txt 和限速。每次只读取一份不超过 128KB 的 HTML/TXT，不保存原文多媒体，也不加入原创文章正文。首次检查 robots 后需要下一次操作才会读取正文。模型判断仅供人工复核，不声称事实已认证。</p>';
+                    $trusted=$pdo->query('SELECT id,origin FROM agent_sources WHERE enabled=1 ORDER BY id LIMIT 30')->fetchAll();
+                    foreach(array_slice($claims,0,8) as $claimIndex=>$claim) {
+                        if(!$trusted || !is_array($claim)) continue;
+                        echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+                            '<input type="hidden" name="action" value="topic_fact_document">'.
+                            '<input type="hidden" name="id" value="'.$selected.'">'.
+                            '<input type="hidden" name="claim_index" value="'.(int)$claimIndex.'">'.
+                            '<label>主张 #'.($claimIndex+1).'：'.h(mb_substr((string)$claim['claim'],0,90)).'<select name="source_id">';
+                        foreach($trusted as $src) echo '<option value="'.(int)$src['id'].'">'.h($src['origin']).'</option>';
+                        echo '</select></label><label>该站点的具体原始资料网址<input name="source_url" type="url" maxlength="2048" required placeholder="https://approved.example.org/official-guide"></label>'.
+                            '<button class="button secondary" type="submit">按 robots/限速规则核查</button></form>';
+                    }
+                    $documents=agent_fact_documents_summary($pdo,$selected);
+                    if($documents) {
+                        echo '<h4>已采集的独立证据摘要（仅管理员可见）</h4>';
+                        foreach($documents as $doc) {
+                            echo '<div class="admin-panel"><p><strong>'.h($doc['claim_text']).'</strong> · '.
+                                h($doc['verdict']).'</p><p>'.h($doc['rationale']).'</p>'.
+                                '<p><a href="'.h($doc['source_url']).'" target="_blank" rel="noopener noreferrer nofollow">'.
+                                h($doc['source_host']).' · '.h($doc['page_title']).'</a> · 读取时间：'.
+                                h(date('Y-m-d H:i',(int)$doc['retrieved_at'])).'</p>'.
+                                '<p class="muted">原文节选（仅辅助核查）：'.h(mb_substr($doc['excerpt'],0,450)).'…</p>'.
+                                '<form method="post" action="/admin/agent/action">'.csrf_input().
+                                '<input type="hidden" name="action" value="topic_fact_delete">'.
+                                '<input type="hidden" name="id" value="'.$selected.'">'.
+                                '<input type="hidden" name="doc_id" value="'.(int)$doc['id'].'">'.
+                                '<button class="button secondary" type="submit">删除该内部核查记录</button></form></div>';
+                        }
+                    }
+                }
                 if ($evidence) {
                     echo '<p class="muted">搜索索引交叉核对线索（未逐页验证，非事实证明）：</p>';
                     foreach(array_slice($evidence,0,5) as $entry) {
