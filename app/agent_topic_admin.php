@@ -33,6 +33,23 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_review_settings') {
+        $daily=min(24,max(0,(int)($post['reviews']??8)));
+        $searchDaily=min(8,max(0,(int)($post['searches']??2)));
+        set_setting('agent_review_daily_limit',(string)$daily);
+        set_setting('agent_fact_search_daily_limit',(string)$searchDaily);
+        set_setting('agent_fact_search_enabled',($post['search_enabled']??'')==='1'?'1':'0');
+        return '独立审查和搜索线索预算已保存，搜索摘要不能替代真实事实认证';
+    }
+    if ($action==='topic_quality_waive') {
+        agent_topic_quality_waive($pdo,$id,(string)($post['reason']??''));
+        return '人工复核理由已记录，允许继续制作未发布草稿';
+    }
+    if ($action==='topic_quality_retry') {
+        $pdo->prepare("UPDATE agent_topic_quality SET status='pending',risk='unknown',
+            model_notes='',checked_at=0 WHERE idea_id=? AND status='error'")->execute([$id]);
+        return '失败的质量审查已重新排队，仍需遵守每日预算';
+    }
     if ($action==='topic_image_settings') {
         $model=trim((string)($post['model']??'gpt-image-1'));
         if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:+-]{0,100}$/D',$model)) {
@@ -74,13 +91,27 @@ function agent_topic_admin_section(PDO $pdo): void
          '<label>兼容图片生成的模型 ID<input name="model" maxlength="100" value="'.h(setting('agent_original_image_model','gpt-image-1')).'"></label>'.
          '<button class="button secondary" type="submit">保存原创插画设置</button></form>';
     echo '<p class="muted">图片供应商需要支持 /v1/images/generations 的 b64_json 输出。生成失败不会自动使用第三方素材；流程图和表格是可编辑 HTML。全流程仍保留事实质量和安全审核，原创不等于所有内容一定正确或免除其它合规义务。</p>';
+    $reviewDaily=min(24,max(0,(int)setting('agent_review_daily_limit','8')));
+    $searchDaily=min(8,max(0,(int)setting('agent_fact_search_daily_limit','2')));
+    $searchEnabled=setting('agent_fact_search_enabled','0')==='1';
+    echo '<h3>原创教程质量复核（独立于写作模型的第二次审稿）</h3>';
+    echo '<p class="muted">按具体内容检查操作风险、矛盾和未经证实的参数；默认每天最多复核 8 篇。可选查询搜索索引中的多个域名作为核实线索，但只获取搜索摘要、不打开原网页、不写入教程正文。此检查不能独立证明内容真实有效。</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_review_settings">'.
+        '<label>每日质量复核 AI 上限<input type="number" name="reviews" min="0" max="24" value="'.$reviewDaily.'"></label>'.
+        '<label>外部交叉核对线索<select name="search_enabled"><option value="0" '.(!$searchEnabled?'selected':'').'>关闭</option><option value="1" '.($searchEnabled?'selected':'').'>启用（需 Brave Search API）</option></select></label>'.
+        '<label>每日搜索线索次数<input type="number" name="searches" min="0" max="8" value="'.$searchDaily.'"></label>'.
+        '<button class="button secondary" type="submit">保存审稿预算</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
+    $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     foreach($records as $item) {
         $id=(int)$item['id'];
+        $qualityLookup->execute([$id]);
+        $qualityStatus=$qualityLookup->fetch();
         $heading=$item['title'] ?: $item['raw_title'];
         echo '<tr><td><strong>'.h($heading).'</strong><br><small>原始问题：'.h(mb_substr((string)$item['raw_title'],0,180)).
             '；领域：'.h($item['industry']).'；仅供内部审计：'.h($item['source_method']).'</small></td>';
-        echo '<td>'.h($item['status']).' / '.(int)$item['score'].' 分<br><small>原创配图：'.h($item['asset_status']).'</small></td>';
+        echo '<td>'.h($item['status']).' / '.(int)$item['score'].' 分<br><small>独立审查：'.h($qualityStatus['status']??'旧版记录').' / 风险 '.h($qualityStatus['risk']??'未评级').'</small><br><small>原创配图：'.h($item['asset_status']).'</small></td>';
         echo '<td><a class="button secondary" href="/admin/agent?topic_idea='.$id.'">预览原创内容</a></td></tr>';
     }
     echo '</tbody></table></div>';
@@ -93,6 +124,31 @@ function agent_topic_admin_section(PDO $pdo): void
             echo '<div class="admin-panel"><h3>原创选题 #'.(int)$item['id'].'</h3>';
             echo '<p class="muted">内部选题线索（不加入正文）：'.h($item['source_url']?:'管理员输入').
                 '</p><p class="muted">审阅问题：'.h($item['review_notes']).'</p>';
+            $qualityLookup->execute([$selected]);
+            $qc=$qualityLookup->fetch();
+            if($qc) {
+                $finding=json_decode((string)$qc['issues_json'],true) ?: [];
+                $evidence=json_decode((string)$qc['evidence_json'],true) ?: [];
+                echo '<p class="muted">独立风险复核：'.h($qc['status']).' / '.h($qc['risk']).'。'.h($qc['model_notes']).'</p>';
+                foreach((array)($finding['issues']??[]) as $issue) echo '<p>风险问题：'.h((string)$issue).'</p>';
+                foreach((array)($finding['checklist']??[]) as $itemCheck) echo '<p>人工检查：'.h((string)$itemCheck).'</p>';
+                if ($evidence) {
+                    echo '<p class="muted">搜索索引交叉核对线索（未逐页验证，非事实证明）：</p>';
+                    foreach(array_slice($evidence,0,5) as $entry) {
+                        echo '<p><a target="_blank" rel="noopener noreferrer nofollow" href="'.h((string)$entry['url']).'">'.h((string)$entry['title']).'</a>：'.h((string)$entry['snippet']).'</p>';
+                    }
+                }
+                if (in_array($qc['status'],['pending','needs_review','error'],true)) {
+                    echo '<form method="post" action="/admin/agent/action" class="stack-form">'.csrf_input().
+                        '<input type="hidden" name="action" value="topic_quality_waive">'.
+                        '<input type="hidden" name="id" value="'.$selected.'">'.
+                        '<label>人工事实复核及放行理由（至少 12 字）<textarea name="reason" required minlength="12" maxlength="400"></textarea></label>'.
+                        '<button class="button secondary" type="submit">记录人工审查并允许创建草稿</button></form>';
+                    if ($qc['status']==='error') echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                        '<input type="hidden" name="action" value="topic_quality_retry"><input type="hidden" name="id" value="'.$selected.'">'.
+                        '<button class="button secondary" type="submit">重新排队 AI 审查</button></form>';
+                }
+            }
             echo '<div class="article-content">'.sanitize_content($item['html']).'</div>';
             if($item['status']==='review' && $item['asset_status']==='pending') {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="topic_skip_image"><input type="hidden" name="id" value="'.(int)$item['id'].'"><button class="button secondary" type="submit">跳过原创插画，直接审核文字</button></form>';
@@ -101,7 +157,7 @@ function agent_topic_admin_section(PDO $pdo): void
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
                     '<input type="hidden" name="action" value="topic_approve">'.
                     '<input type="hidden" name="id" value="'.(int)$item['id'].'">'.
-                    '<button class="button primary" type="submit" '.($item['asset_status']==='pending'?'disabled':'').'>人工确认并创建未发布草稿</button></form>';
+                    '<button class="button primary" type="submit" '.($item['asset_status']==='pending' || ($qc && !in_array($qc['status'],['reviewed','waived'],true)) ?'disabled':'').'>人工确认并创建未发布草稿</button></form>';
             }
             if(in_array($item['status'],['queued','review','error'],true)) {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
