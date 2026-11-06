@@ -36,13 +36,15 @@ try {
     $calls=[];
     $t=1900000000;
     $blockedReentry=0;
-    $transport=static function(string $action,array $payload) use (&$calls,&$blockedReentry,$pdo,$stmt,$idea,$id,$t):array|string {
+    $staleRunningSnapshot=null;
+    $transport=static function(string $action,array $payload) use (&$calls,&$blockedReentry,&$staleRunningSnapshot,$pdo,$stmt,$idea,$id,$t):array|string {
         $calls[]=$action;
         if($action==='start') {
             // Re-entrant second scheduler has a fresh running snapshot
             // but must never call the paid creation endpoint again.
             $stmt->execute([$id]);
             $concurrent=$stmt->fetch();
+            $staleRunningSnapshot=$concurrent;
             if(!$concurrent || $concurrent['status']!=='running' ||
                 $concurrent['lease_token']==='') {
                 throw new RuntimeException('Creation was not durably claimed before paid API call');
@@ -95,7 +97,12 @@ try {
         throw new RuntimeException('Stale queue snapshots should not resubmit paid videos');
     }
     $stmt->execute([$id]);$job=$stmt->fetch();
-    $poll=agent_ai_video_process($pdo,$job,$idea,$transport,$t+120);
+    if(!$staleRunningSnapshot || $staleRunningSnapshot['remote_id']!=='') {
+        throw new RuntimeException('Test did not capture stale remote-ID-less running snapshot');
+    }
+    // A worker that read the in-flight row before the first network result
+    // must re-fetch current remote_id after winning a later lease.
+    $poll=agent_ai_video_process($pdo,$staleRunningSnapshot,$idea,$transport,$t+120);
     if($poll['status']!=='ready') throw new RuntimeException('Video polling did not register ready state');
     $stmt->execute([$id]);$job=$stmt->fetch();
     $done=agent_ai_video_process($pdo,$job,$idea,$transport,$t+245);
