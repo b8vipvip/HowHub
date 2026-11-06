@@ -82,10 +82,8 @@ function agent_structured_html(array $features): string
         $html .= '<h2>原文公式</h2>';
         foreach (($features['mathml'] ?? []) as $math) $html .= $math;
         foreach (($features['formulas'] ?? []) as $tex) {
-            if (empty($features['mathml'])) {
-                $preview=agent_tex_mathml($tex);
-                if ($preview!=='') $html .= $preview;
-            }
+            $preview=agent_tex_mathml($tex);
+            if ($preview!=='') $html .= $preview;
             $html .= '<pre><code>'.h($tex).'</code></pre>';
         }
     }
