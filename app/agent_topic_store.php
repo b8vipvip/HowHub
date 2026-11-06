@@ -46,6 +46,8 @@ CREATE INDEX IF NOT EXISTS agent_topic_runs_recent ON agent_topic_runs(kind,requ
 SQL);
     agent_topic_quality_tables($pdo);
     agent_topic_av_tables($pdo);
+    agent_ai_video_tables($pdo);
+    agent_fact_documents_tables($pdo);
 }
 
 function agent_topic_clean_title(string $raw): string
@@ -116,6 +118,11 @@ function agent_topic_approve(PDO $pdo,int $id): int
         $mediaState=$media->fetch();
         if ($mediaState && ($mediaState['audio_status']==='pending' || $mediaState['video_status']==='pending')) {
             throw new RuntimeException('原创配音或视频还在生成队列；请完成或手动跳过后再审核');
+        }
+        $aiVideo=$pdo->prepare("SELECT status FROM agent_ai_video_jobs WHERE idea_id=?");
+        $aiVideo->execute([$id]);
+        if (in_array($aiVideo->fetchColumn(),['queued','running','ready'],true)) {
+            throw new RuntimeException('AI 视频模型仍在生成；请完成或跳过任务');
         }
         if ($idea['asset_status']==='pending') throw new RuntimeException('原创插画任务未完成，请完成后再确认草稿');
         if (mb_strlen(trim(strip_tags($idea['html'])))<90) {

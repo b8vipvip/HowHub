@@ -33,6 +33,60 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_fact_document') {
+        $out=agent_fact_document_add($pdo,$id,
+            (int)($post['claim_index']??-1),
+            (int)($post['source_id']??0),
+            (string)($post['source_url']??''));
+        return '原始资料核对：'.(string)($out['status']??'unknown').'。'.
+            (string)($out['message']??'结果已写入仅管理员可查看的核查记录');
+    }
+    if ($action==='topic_fact_delete') {
+        $docId=max(0,(int)($post['doc_id']??0));
+        $stmt=$pdo->prepare('DELETE FROM agent_fact_documents WHERE idea_id=? AND id=?');
+        $stmt->execute([$id,$docId]);
+        return $stmt->rowCount()===1?'已删除指定的内部核查记录':'该核查记录不存在';
+    }
+    if ($action==='topic_ai_video_settings') {
+        $base=trim((string)($post['base_url']??''));
+        $model=trim((string)($post['model']??''));
+        $key=trim((string)($post['api_key']??''));
+        $enabled=($post['enabled']??'')==='1';
+        if ($base!=='' ) set_setting('agent_ai_video_base',ai_base_url($base));
+        if ($model!=='') {
+            if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:+-]{0,99}$/D',$model)) {
+                throw new InvalidArgumentException('视频模型 ID 不合法');
+            }
+            set_setting('agent_ai_video_model',$model);
+        }
+        if ($key!=='') {
+            if (strlen($key)>4096 || preg_match('/[\\x00-\\x1f]/',$key)) {
+                throw new InvalidArgumentException('视频供应商 API Key 格式不合法');
+            }
+            set_setting('agent_ai_video_key_cipher',ai_encrypt($key));
+        }
+        set_setting('agent_ai_video_request_format',($post['format']??'multipart')==='json'?'json':'multipart');
+        set_setting('agent_ai_video_daily',(string)min(4,max(0,(int)($post['daily']??1))));
+        if ($enabled) agent_ai_video_config();
+        set_setting('agent_ai_video_enabled',$enabled?'1':'0');
+        return '已保存异步 AI 视频供应商：只对新创建的原创教程生效；正式视频 API 需供应商实际支持';
+    }
+    if ($action==='topic_ai_video_skip') {
+        $pdo->prepare("UPDATE agent_ai_video_jobs SET status='skipped',error='管理员停止本地轮询'
+            WHERE idea_id=? AND status IN ('queued','running','ready','failed')")->execute([$id]);
+        return '已停止本地视频任务；如果远端已经创建任务，仍可能计费，请到供应商后台检查';
+    }
+    if ($action==='topic_ai_video_retry') {
+        $q=$pdo->prepare("SELECT remote_id FROM agent_ai_video_jobs WHERE idea_id=? AND status='failed'");
+        $q->execute([$id]);$job=$q->fetch();
+        if(!$job) throw new RuntimeException('视频任务不处于失败状态');
+        if($job['remote_id']==='' && ($post['accept_charge_risk']??'')!=='1') {
+            throw new RuntimeException('上次提交结果不明，可能已经计费；如要重新创建，必须明确确认重复扣费风险');
+        }
+        $pdo->prepare("UPDATE agent_ai_video_jobs SET status=CASE WHEN remote_id='' THEN 'queued' ELSE 'running' END,
+            next_check=0,error='' WHERE idea_id=? AND status='failed'")->execute([$id]);
+        return '已恢复失败任务；有远端 ID 时将继续查询，重建任务仍受每日预算限制';
+    }
     if ($action==='topic_media_settings') {
         $model=trim((string)($post['tts_model']??'tts-1'));
         $voice=trim((string)($post['voice']??'alloy'));
@@ -156,18 +210,39 @@ function agent_topic_admin_section(PDO $pdo): void
         '<label>每日配音次数<input name="audio_daily" type="number" min="0" max="8" value="'.$audioLimit.'"></label>'.
         '<label>每日视频次数<input name="video_daily" type="number" min="0" max="8" value="'.$videoLimit.'"></label>'.
         '<button class="button secondary" type="submit">保存配音/视频设置</button></form>';
+    $videoAIOn=setting('agent_ai_video_enabled','0')==='1';
+    $videoAIBase=setting('agent_ai_video_base','');
+    $videoAIModel=setting('agent_ai_video_model','');
+    $videoAIKey=setting('agent_ai_video_key_cipher','')!=='';
+    $videoAIDaily=min(4,max(0,(int)setting('agent_ai_video_daily','1')));
+    $usedAI=$pdo->prepare('SELECT COUNT(*) FROM agent_ai_video_budget WHERE created_at>?');
+    $usedAI->execute([time()-86400]);
+    echo '<h3>真实 AI 视频模型（可选，默认关闭）</h3>';
+    echo '<p class="muted">支持第三方供应商提供的异步兼容接口 POST /v1/videos、GET /v1/videos/{id}、GET /v1/videos/{id}/content。请确认供应商实际支持。OpenAI 官方旧 Sora Videos API 已于 2026-09-24 关闭，不能使用已停服的 sora-2 作为默认模型。每篇只创建一次付费任务，轮询、下载和导入本站媒体库分步完成；失败不会无限自动重试。</p>';
+    echo '<p class="muted">过去 24 小时创建任务：'.(int)$usedAI->fetchColumn().'/'.$videoAIDaily.'；已配置密钥：'.($videoAIKey?'是':'否').'。注意可能按秒计费，建议先设为每日 1 个任务。</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_ai_video_settings">'.
+        '<label>启用异步 AI 原创视频<select name="enabled"><option value="0" '.(!$videoAIOn?'selected':'').'>关闭</option><option value="1" '.($videoAIOn?'selected':'').'>仅对新原创文章开启</option></select></label>'.
+        '<label>视频供应商 /v1 地址<input name="base_url" maxlength="2048" value="'.h($videoAIBase).'" placeholder="https://provider.example/v1"></label>'.
+        '<label>视频模型 ID<input name="model" maxlength="100" value="'.h($videoAIModel).'" placeholder="供应商实际提供的模型 ID"></label>'.
+        '<label>视频独立 API Key<input type="password" autocomplete="new-password" name="api_key" maxlength="4096" placeholder="'.($videoAIKey?'已加密保存，留空不更改':'输入供应商的密钥').'"></label>'.
+        '<label>创建任务的请求格式<select name="format"><option value="multipart" '.(setting('agent_ai_video_request_format','multipart')==='multipart'?'selected':'').'>multipart 表单</option><option value="json" '.(setting('agent_ai_video_request_format','multipart')==='json'?'selected':'').'>JSON</option></select></label>'.
+        '<label>每日付费视频任务上限<input type="number" name="daily" min="0" max="4" value="'.$videoAIDaily.'"></label>'.
+        '<button class="button secondary" type="submit">保存 AI 视频配置</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
+    $modelVideoLookup=$pdo->prepare('SELECT * FROM agent_ai_video_jobs WHERE idea_id=?');
     foreach($records as $item) {
         $id=(int)$item['id'];
         $qualityLookup->execute([$id]);
         $qualityStatus=$qualityLookup->fetch();
         $avLookup->execute([$id]);$avStatus=$avLookup->fetch();
+        $modelVideoLookup->execute([$id]);$aiVid=$modelVideoLookup->fetch();
         $heading=$item['title'] ?: $item['raw_title'];
         echo '<tr><td><strong>'.h($heading).'</strong><br><small>原始问题：'.h(mb_substr((string)$item['raw_title'],0,180)).
             '；领域：'.h($item['industry']).'；仅供内部审计：'.h($item['source_method']).'</small></td>';
-        echo '<td>'.h($item['status']).' / '.(int)$item['score'].' 分<br><small>独立审查：'.h($qualityStatus['status']??'旧版记录').' / 风险 '.h($qualityStatus['risk']??'未评级').'</small><br><small>原创配图：'.h($item['asset_status']).'；配音：'.h($avStatus['audio_status']??'未设置').'；视频：'.h($avStatus['video_status']??'未设置').'</small></td>';
+        echo '<td>'.h($item['status']).' / '.(int)$item['score'].' 分<br><small>独立审查：'.h($qualityStatus['status']??'旧版记录').' / 风险 '.h($qualityStatus['risk']??'未评级').'</small><br><small>原创配图：'.h($item['asset_status']).'；配音：'.h($avStatus['audio_status']??'未设置').'；视频：'.h($avStatus['video_status']??'未设置').'；AI 视频：'.h($aiVid['status']??'未配置').'</small></td>';
         echo '<td><a class="button secondary" href="/admin/agent?topic_idea='.$id.'">预览原创内容</a></td></tr>';
     }
     echo '</tbody></table></div>';
@@ -183,6 +258,28 @@ function agent_topic_admin_section(PDO $pdo): void
             $qualityLookup->execute([$selected]);
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
+            $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
+            if($modelVideo) {
+                echo '<p class="muted">AI 视频模型任务：'.h($modelVideo['status']).'；模型：'.h($modelVideo['model']).
+                    '；远端 ID：'.h($modelVideo['remote_id']).'；轮询次数：'.(int)$modelVideo['checks'].
+                    '；错误：'.h($modelVideo['error']).'</p>';
+                if(in_array($modelVideo['status'],['queued','running','ready','failed'],true)) {
+                    echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                        '<input type="hidden" name="action" value="topic_ai_video_skip">'.
+                        '<input type="hidden" name="id" value="'.$selected.'">'.
+                        '<button class="button secondary" type="submit">停止或跳过 AI 视频，允许人工审核正文</button></form>';
+                }
+                if($modelVideo['status']==='failed') {
+                    echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                        ($modelVideo['remote_id']===''?'<input type="hidden" name="accept_charge_risk" value="1">':'').
+                        '<input type="hidden" name="action" value="topic_ai_video_retry">'.
+                        '<input type="hidden" name="id" value="'.$selected.'">'.
+                        '<button class="button secondary" type="submit">'.($modelVideo['remote_id']===''?
+                            '重新发起可能重复计费的视频任务（须确认供应商后台）':
+                            '继续查询已有远端视频任务，不重复提交').'</button></form>';
+                }
+            }
+
             if ($av) {
                 echo '<p class="muted">原创配音：'.h($av['audio_status']).'；视频：'.h($av['video_status']).'；'.h($av['notes']).'</p>';
                 foreach(['audio'=>'配音','video'=>'视频'] as $kind=>$label) {
@@ -227,6 +324,39 @@ function agent_topic_admin_section(PDO $pdo): void
                         echo '</p>';
                     }
                 }
+                if ($claims) {
+                    echo '<h4>指定已批准的来源网站，核查原始网页（人工触发）</h4>';
+                    echo '<p class="muted">仅访问管理员启用的来源站点；先检查 robots.txt 和限速。每次只读取一份不超过 128KB 的 HTML/TXT，不保存原文多媒体，也不加入原创文章正文。首次检查 robots 后需要下一次操作才会读取正文。模型判断仅供人工复核，不声称事实已认证。</p>';
+                    $trusted=$pdo->query('SELECT id,origin FROM agent_sources WHERE enabled=1 ORDER BY id LIMIT 30')->fetchAll();
+                    foreach(array_slice($claims,0,8) as $claimIndex=>$claim) {
+                        if(!$trusted || !is_array($claim)) continue;
+                        echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+                            '<input type="hidden" name="action" value="topic_fact_document">'.
+                            '<input type="hidden" name="id" value="'.$selected.'">'.
+                            '<input type="hidden" name="claim_index" value="'.(int)$claimIndex.'">'.
+                            '<label>主张 #'.($claimIndex+1).'：'.h(mb_substr((string)$claim['claim'],0,90)).'<select name="source_id">';
+                        foreach($trusted as $src) echo '<option value="'.(int)$src['id'].'">'.h($src['origin']).'</option>';
+                        echo '</select></label><label>该站点的具体原始资料网址<input name="source_url" type="url" maxlength="2048" required placeholder="https://approved.example.org/official-guide"></label>'.
+                            '<button class="button secondary" type="submit">按 robots/限速规则核查</button></form>';
+                    }
+                    $documents=agent_fact_documents_summary($pdo,$selected);
+                    if($documents) {
+                        echo '<h4>已采集的独立证据摘要（仅管理员可见）</h4>';
+                        foreach($documents as $doc) {
+                            echo '<div class="admin-panel"><p><strong>'.h($doc['claim_text']).'</strong> · '.
+                                h($doc['verdict']).'</p><p>'.h($doc['rationale']).'</p>'.
+                                '<p><a href="'.h($doc['source_url']).'" target="_blank" rel="noopener noreferrer nofollow">'.
+                                h($doc['source_host']).' · '.h($doc['page_title']).'</a> · 读取时间：'.
+                                h(date('Y-m-d H:i',(int)$doc['retrieved_at'])).'</p>'.
+                                '<p class="muted">原文节选（仅辅助核查）：'.h(mb_substr($doc['excerpt'],0,450)).'…</p>'.
+                                '<form method="post" action="/admin/agent/action">'.csrf_input().
+                                '<input type="hidden" name="action" value="topic_fact_delete">'.
+                                '<input type="hidden" name="id" value="'.$selected.'">'.
+                                '<input type="hidden" name="doc_id" value="'.(int)$doc['id'].'">'.
+                                '<button class="button secondary" type="submit">删除该内部核查记录</button></form></div>';
+                        }
+                    }
+                }
                 if ($evidence) {
                     echo '<p class="muted">搜索索引交叉核对线索（未逐页验证，非事实证明）：</p>';
                     foreach(array_slice($evidence,0,5) as $entry) {
@@ -252,7 +382,7 @@ function agent_topic_admin_section(PDO $pdo): void
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
                     '<input type="hidden" name="action" value="topic_approve">'.
                     '<input type="hidden" name="id" value="'.(int)$item['id'].'">'.
-                    '<button class="button primary" type="submit" '.($item['asset_status']==='pending' || ($qc && !in_array($qc['status'],['reviewed','waived'],true)) || ($av && ($av['audio_status']==='pending' || $av['video_status']==='pending')) ?'disabled':'').'>人工确认并创建未发布草稿</button></form>';
+                    '<button class="button primary" type="submit" '.($item['asset_status']==='pending' || ($qc && !in_array($qc['status'],['reviewed','waived'],true)) || ($av && ($av['audio_status']==='pending' || $av['video_status']==='pending')) || ($modelVideo && in_array($modelVideo['status'],['queued','running','ready'],true)) ?'disabled':'').'>人工确认并创建未发布草稿</button></form>';
             }
             if(in_array($item['status'],['queued','review','error'],true)) {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
