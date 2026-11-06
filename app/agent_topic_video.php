@@ -74,57 +74,95 @@ function agent_topic_video_lines(string $heading,string $body): string
     return implode("\n",$lines);
 }
 
-function agent_topic_video_render(array $slides,string $audioFile = ''): string
+/**
+ * Lightweight original motion explainer: timed step headings, delayed body
+ * captions, moving progress marker and subtle opening/closing fades.
+ * Optionally places OUR newly generated original image behind a dark overlay.
+ * No source-site clips, browser rendering, filter scripts or arbitrary paths.
+ */
+function agent_topic_video_render(array $slides,string $audioFile='',string $imageFile=''): string
 {
     $ffmpeg=url_import_bin('ffmpeg');
-    if ($ffmpeg==='') throw new RuntimeException('原创短视频需要 FFmpeg；服务器尚未安装');
-    if (count($slides)<2 || count($slides)>5) throw new RuntimeException('视频分镜数量必须在 2 至 5 张之间');
+    if ($ffmpeg==='') throw new RuntimeException('原创动态讲解视频需要 FFmpeg');
+    if(count($slides)<2 || count($slides)>5) throw new RuntimeException('视频分镜必须包含 2 至 5 页');
     $allText='';
-    foreach ($slides as $slide) $allText.=(string)($slide['heading']??'').(string)($slide['body']??'');
+    foreach($slides as $slide) $allText.=(string)($slide['heading']??'').(string)($slide['body']??'');
     $font=agent_topic_video_font($allText);
-    $dir=sys_get_temp_dir().'/hh-original-slide-'.bin2hex(random_bytes(12));
-    if (!mkdir($dir,0700)) throw new RuntimeException('无法创建原创视频临时目录');
-    $files=[];
+    if($imageFile!=='') {
+        $root=realpath(media_directory('image'));
+        $real=realpath($imageFile);
+        if(!$root || !$real || !str_starts_with($real,$root.DIRECTORY_SEPARATOR) ||
+            !is_file($real) || !preg_match('/\.(png|jpe?g|webp)$/i',$real)) {
+            throw new RuntimeException('原创视频背景图必须是本站有效的本地 PNG/JPEG/WebP');
+        }
+        $imageFile=$real;
+    }
+    $duration=count($slides)*5;
+    $dir=sys_get_temp_dir().'/hh-original-motion-'.bin2hex(random_bytes(12));
+    if(!mkdir($dir,0700)) throw new RuntimeException('无法创建视频工作目录');
     try {
         $filters=[];
-        foreach ($slides as $i=>$slide) {
-            $text=agent_topic_video_lines((string)$slide['heading'],(string)$slide['body']);
-            $path=$dir.'/caption-'.$i.'.txt';
-            if (file_put_contents($path,$text)!==strlen($text)) throw new RuntimeException('字幕文件写入失败');
-            $files[]=$path;
-            $start=$i*5;
-            $end=$start+5;
-            $filters[]='drawtext=fontfile='.$font.':textfile='.$path.
-                ':fontcolor=white:fontsize=27:line_spacing=10:'.
-                'x=(w-text_w)/2:y=(h-text_h)/2:'.
-                'enable=between(t\\,'.$start.'\\,'.$end.')';
+        if($imageFile!=='') {
+            $filters[]='scale=854:480:force_original_aspect_ratio=increase';
+            $filters[]='crop=854:480';
+            $filters[]='drawbox=x=0:y=0:w=iw:h=ih:color=0x081933@0.70:t=fill';
         }
-        $duration=count($slides)*5;
-        $output=$dir.'/original-lesson.mp4';
-        $args=[$ffmpeg,'-nostdin','-hide_banner','-loglevel','error',
-            '-f','lavfi','-i','color=c=0x142744:s=854x480:r=12:d='.$duration];
-        if ($audioFile!=='') {
-            if (!is_file($audioFile) || !str_starts_with(realpath($audioFile)?:'',realpath(media_directory('file')).DIRECTORY_SEPARATOR)) {
-                throw new RuntimeException('配音文件不是本站已归档素材');
+        $filters[]='drawbox=x=25:y=432:w=804:h=5:color=white@0.25:t=fill';
+        $filters[]='drawtext=fontfile='.$font.':text=●:fontcolor=0x9cd8ff:fontsize=23:'.
+            'x=20+30*t:y=422';
+        foreach($slides as $i=>$slide) {
+            $head=agent_topic_video_lines((string)($slide['heading']??''),'');
+            $body=agent_topic_video_lines('',(string)($slide['body']??''));
+            $headFile=$dir.'/head-'.$i.'.txt';
+            $bodyFile=$dir.'/body-'.$i.'.txt';
+            if(file_put_contents($headFile,$head)!==strlen($head) ||
+                file_put_contents($bodyFile,$body)!==strlen($body)) {
+                throw new RuntimeException('字幕分镜写入不完整');
             }
-            array_push($args,'-i',$audioFile);
+            $start=$i*5;$end=$start+4.98;
+            // Body appears a moment later than heading, conveying progress
+            // rather than a permanently static text frame.
+            $filters[]='drawtext=fontfile='.$font.':textfile='.$headFile.
+                ':fontcolor=white:fontsize=31:line_spacing=9:'.
+                'x=(w-text_w)/2:y=108:enable=between(t\\,'.$start.'\\,'.$end.')';
+            $filters[]='drawtext=fontfile='.$font.':textfile='.$bodyFile.
+                ':fontcolor=0xe0ecff:fontsize=25:line_spacing=10:'.
+                'x=(w-text_w)/2:y=230:enable=between(t\\,'.($start+1).'\\,'.$end.')';
+        }
+        $filters[]='fade=t=in:st=0:d=0.45';
+        $filters[]='fade=t=out:st='.($duration-0.45).':d=0.45';
+        $output=$dir.'/explanation.mp4';
+        $args=[$ffmpeg,'-nostdin','-hide_banner','-loglevel','error'];
+        if($imageFile!=='') {
+            array_push($args,'-loop','1','-framerate','12','-i',$imageFile);
+        } else {
+            array_push($args,'-f','lavfi','-i',
+                'color=c=0x142744:s=854x480:r=12:d='.$duration);
+        }
+        if($audioFile!=='') {
+            $root=realpath(media_directory('file'));
+            $real=realpath($audioFile);
+            if(!$root || !$real || !str_starts_with($real,$root.DIRECTORY_SEPARATOR) ||
+                !is_file($real)) {
+                throw new RuntimeException('配音不是本站已归档的受控素材');
+            }
+            array_push($args,'-i',$real);
         }
         array_push($args,'-vf',implode(',',$filters),'-map','0:v:0');
-        if ($audioFile!=='') {
+        if($audioFile!=='') {
             array_push($args,'-map','1:a:0','-af','apad','-c:a','aac','-b:a','96k');
         } else $args[]='-an';
         array_push($args,'-c:v','libx264','-preset','ultrafast','-crf','29',
             '-pix_fmt','yuv420p','-threads','1','-movflags','+faststart',
-            '-t',(string)$duration,'-y',$output);
+            '-r','12','-t',(string)$duration,'-y',$output);
         url_import_process($args,100,16384);
         $size=@filesize($output);
-        if (!$size || $size>18*1024*1024) throw new RuntimeException('合成视频为空或超出 18MB 限制');
+        if(!$size || $size>18*1024*1024) throw new RuntimeException('原创讲解视频为空或超过 18MB');
         $bytes=file_get_contents($output,false,null,0,18*1024*1024+1);
-        if (!is_string($bytes)) throw new RuntimeException('无法读取完成的视频文件');
+        if(!is_string($bytes)) throw new RuntimeException('无法读取 MP4 输出');
         return $bytes;
     } finally {
-        foreach($files as $path) @unlink($path);
-        foreach(glob($dir.'/*')?:[] as $path) @unlink($path);
+        foreach(glob($dir.'/*')?:[] as $file) @unlink($file);
         @rmdir($dir);
     }
 }
