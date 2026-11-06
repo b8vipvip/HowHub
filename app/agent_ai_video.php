@@ -242,13 +242,26 @@ function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixtu
             return ['status'=>$state];
         }
         if($state==='ready') {
-            $bytes=agent_ai_video_transport('download',['id'=>$remoteId],$fixture);
-            if(!is_string($bytes)) throw new RuntimeException('视频下载响应不是文件');
-            // Reuse existing bounded, private, MIME-checked storage.
-            $url=agent_topic_generated_file($pdo,$bytes,'video');
+            $url=(string)($job['mp4_url']??'');
+            if($url==='') {
+                $bytes=agent_ai_video_transport('download',['id'=>$remoteId],$fixture);
+                if(!is_string($bytes)) throw new RuntimeException('视频下载响应不是文件');
+                $url=agent_topic_generated_file($pdo,$bytes,'video');
+                // Save the local archive pointer FIRST. A later HTML update
+                // failure must never trigger another paid download or orphan
+                // the already stored local MP4.
+                $pdo->prepare("UPDATE agent_ai_video_jobs SET mp4_url=?,updated_at=? WHERE idea_id=? AND status='ready'")
+                    ->execute([$url,$now,$id]);
+            }
+            $asset=$pdo->prepare("SELECT * FROM media_assets WHERE url=? AND kind='file' AND mime='video/mp4'");
+            $asset->execute([$url]);
+            $found=$asset->fetch();
+            if (!$found || !media_file_path($found)) {
+                throw new RuntimeException('已归档的 MP4 不存在，必须由管理员检查媒体库');
+            }
             agent_topic_av_append($pdo,$id,'video',$url,'generated');
-            $pdo->prepare("UPDATE agent_ai_video_jobs SET status='complete',mp4_url=?,updated_at=? WHERE idea_id=?")
-                ->execute([$url,$now,$id]);
+            $pdo->prepare("UPDATE agent_ai_video_jobs SET status='complete',updated_at=? WHERE idea_id=?")
+                ->execute([$now,$id]);
             return ['status'=>'complete','url'=>$url];
         }
         return ['status'=>'idle'];
