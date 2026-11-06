@@ -61,6 +61,7 @@ function agent_topic_enqueue(PDO $pdo, string $title, string $sourceUrl, string 
     string $industry = '', string $language = '', ?int $sourceId = null): bool
 {
     if (!in_array($method,['search_api','search_question','feed_title','feed_question','manual'],true)) return false;
+    if ($method!=='manual' && trim($sourceUrl)==='') return false;
     try {
         $title=agent_topic_clean_title($title);
         $sourceUrl=$sourceUrl!=='' ? agent_normalize_url($sourceUrl) : '';
