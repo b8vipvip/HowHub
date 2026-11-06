@@ -115,6 +115,16 @@ try {
     if (agent_tex_mathml('\\href{javascript:evil}{x}')!=='' || agent_tex_mathml('x^{}}')!=='') {
         throw new RuntimeException('Untrusted unsupported TeX was rendered');
     }
+    $audioText=agent_audio_parse_transcript('{"text":"这段操作提示描述了需要核对设备型号，然后检查网络设置。"}');
+    if (!str_contains($audioText,'网络设置')) throw new RuntimeException('Audio transcript parser failed');
+    $priorAudio=setting('agent_stt_enabled','0');
+    set_setting('agent_stt_enabled','0');
+    try {
+        $disabled=agent_audio_transcribe_video(str_repeat('x',128),'.mp4');
+        if ($disabled['text']!=='' || !str_contains($disabled['warning'],'未启用')) {
+            throw new RuntimeException('Video audio must remain opt-in');
+        }
+    } finally {set_setting('agent_stt_enabled',$priorAudio);}
     $flow=agent_mermaid_linear_preview('graph TD; A[开始]-->B[设置]; B-->C[完成]');
     if (!str_contains($flow,'hh-flow-node') || !str_contains($flow,'开始') ||
         !str_contains($flow,'完成')) throw new RuntimeException('Safe Mermaid linear preview failed');
