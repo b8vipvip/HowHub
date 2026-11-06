@@ -6,6 +6,7 @@ function agent_admin_action(PDO $pdo, array $post): string
 {
     $action=(string)($post['action']??'');
     $id=max(0,(int)($post['id']??0));
+    if (str_starts_with($action,'research_')) return agent_research_admin_action($pdo,$post);
     if ($action==='global') {
         set_setting('agent_enabled',($post['enabled']??'')==='1'?'1':'0');
         return '全局自动发现开关已更新';
@@ -82,6 +83,7 @@ function agent_admin_page(PDO $pdo): void
     echo '<input type="hidden" name="enabled" value="'.($global?'0':'1').'"><button class="button primary" type="submit">'.($global?'停止全部自动发现':'启用全部自动发现').'</button></form>';
     echo '<p class="muted">定时任务：每 5 分钟运行 PHP CLI 文件 bin/agent-run.php；每次最多执行一项工作。管理员可以随时暂停。</p>';
     echo '</section>';
+    agent_research_admin_section($pdo);
 
     echo '<section class="admin-panel"><h2>添加来源网站</h2><p class="muted">建议使用有公开 RSS/Atom/Sitemap 的官方知识库、开放教材或已经允许内容使用的网站。不限中文或英文。新来源默认为摘要模式并暂停。</p>';
     echo '<form method="post" action="/admin/agent/action" class="stack-form">'.csrf_input().'<input type="hidden" name="action" value="add">';
