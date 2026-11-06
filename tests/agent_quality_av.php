@@ -133,6 +133,32 @@ try {
         if (!str_contains(substr($real,0,32),'ftyp') || strlen($real)<3000) {
             throw new RuntimeException('FFmpeg did not produce a playable MP4 container');
         }
+        // Real image-backed video must use a locally owned original image,
+        // without browser access or outside file paths.
+        if (function_exists('gzcompress')) {
+            $chunk=static function(string $kind,string $data):string {
+                return pack('N',strlen($data)).$kind.$data.pack('N',crc32($kind.$data));
+            };
+            $pixels='';
+            for($n=0;$n<16;$n++) $pixels.="\x00".str_repeat("\x20\x50\x80",16);
+            $png="\x89PNG\r\n\x1a\n".
+                $chunk('IHDR',pack('NNCCCCC',16,16,8,2,0,0,0)).
+                $chunk('IDAT',gzcompress($pixels,9)).
+                $chunk('IEND','');
+            $background=media_directory('image').'/ci-animation-'.bin2hex(random_bytes(8)).'.png';
+            if(file_put_contents($background,$png)!==strlen($png)) {
+                throw new RuntimeException('Could not write original background test fixture');
+            }
+            try {
+                $animated=agent_topic_video_render([
+                    ['heading'=>'Original methods','body'=>'Newly generated illustration'],
+                    ['heading'=>'Next safe step','body'=>'Check the guide before proceeding'],
+                ],'',$background);
+                if (!str_contains(substr($animated,0,32),'ftyp') || strlen($animated)<3000) {
+                    throw new RuntimeException('Image-backed original video rendering failed');
+                }
+            } finally {@unlink($background);}
+        }
     }
 
     if (!agent_topic_quality_budget($pdo,'review',-789)) {
