@@ -86,8 +86,11 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
         $pdo->prepare('INSERT INTO agent_fact_auto_plans(idea_id,quality_checked_at,scanned_at,candidate_count) VALUES(?,?,?,0) ON CONFLICT(idea_id) DO UPDATE SET quality_checked_at=excluded.quality_checked_at,scanned_at=excluded.scanned_at,candidate_count=0')->execute([$ideaId,$checked,time()]);
         return 0;
     }
-    $existing=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_tasks WHERE idea_id=?');
-    $existing->execute([$ideaId]);
+    // A fresh second-pass review is a new claim snapshot; older stopped
+    // tasks must not permanently consume the current four-candidate budget.
+    $existing=$pdo->prepare('SELECT COUNT(*) FROM agent_fact_auto_tasks
+        WHERE idea_id=? AND quality_checked_at=?');
+    $existing->execute([$ideaId,$checked]);
     $remaining=max(0,4-(int)$existing->fetchColumn());
     if(!$remaining) {
         $pdo->prepare('INSERT INTO agent_fact_auto_plans(idea_id,quality_checked_at,scanned_at,candidate_count)
@@ -96,8 +99,14 @@ function agent_fact_auto_plan(PDO $pdo,int $ideaId): int
             candidate_count=0')->execute([$ideaId,$checked,time()]);
         return 0;
     }
-    $insert=$pdo->prepare("INSERT OR IGNORE INTO agent_fact_auto_tasks
-        (idea_id,claim_index,source_id,source_url,created_at,quality_checked_at) VALUES(?,?,?,?,?,?)");
+    $insert=$pdo->prepare("INSERT INTO agent_fact_auto_tasks
+        (idea_id,claim_index,source_id,source_url,created_at,quality_checked_at)
+        VALUES(?,?,?,?,?,?)
+        ON CONFLICT(idea_id,claim_index,source_url) DO UPDATE SET
+          source_id=excluded.source_id,created_at=excluded.created_at,
+          quality_checked_at=excluded.quality_checked_at,
+          status='queued',attempts=0,next_at=0,last_status=''
+        WHERE agent_fact_auto_tasks.quality_checked_at!=excluded.quality_checked_at");
     $count=0;
     foreach(array_slice($claims,0,8) as $idx=>$claim) {
         // Search-snippet corroboration is NOT a reason to skip primary-source checks.
