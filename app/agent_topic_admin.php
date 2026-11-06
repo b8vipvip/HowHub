@@ -389,11 +389,12 @@ function agent_topic_admin_section(PDO $pdo): void
             $diagramLookup->execute([$selected]);$existingDiagram=$diagramLookup->fetch();
             if($existingDiagram) echo '<p class="muted">Graphviz 图片：'.h($existingDiagram['status']).
                 ' '.h($existingDiagram['image_url']).'</p>';
-            if($item['status']==='review' && $graphBin && (!$existingDiagram || $existingDiagram['status']!=='complete')) {
+            if($item['status']==='review' && $graphBin) {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
                      '<input type="hidden" name="action" value="topic_diagram_generate">'.
                      '<input type="hidden" name="id" value="'.$selected.'">'.
-                     '<button class="button secondary" type="submit">生成首张原创流程/思维导图 PNG</button></form>';
+                     '<button class="button secondary" type="submit">'.($existingDiagram && $existingDiagram['status']==='complete'?
+                        '核对并更新已编辑的流程/思维导图 PNG':'生成首张原创流程/思维导图 PNG').'</button></form>';
             }
             $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
             if($modelVideo) {
