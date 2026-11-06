@@ -189,6 +189,28 @@ function agent_topic_admin_section(PDO $pdo): void
                 echo '<p class="muted">独立风险复核：'.h($qc['status']).' / '.h($qc['risk']).'。'.h($qc['model_notes']).'</p>';
                 foreach((array)($finding['issues']??[]) as $issue) echo '<p>风险问题：'.h((string)$issue).'</p>';
                 foreach((array)($finding['checklist']??[]) as $itemCheck) echo '<p>人工检查：'.h((string)$itemCheck).'</p>';
+                $claims=(array)($finding['claims']??[]);
+                if ($claims) {
+                    echo '<h4>逐条事实主张与证据线索（非事实认证）</h4>';
+                    foreach($claims as $claim) {
+                        if (!is_array($claim)) continue;
+                        $findingType=(string)($claim['finding']??'unverified');
+                        $stateLabel=match($findingType) {
+                            'corroborating_snippets'=>'多个不同站点摘要提供相近线索',
+                            'conflicting_snippets'=>'搜索摘要存在冲突',
+                            default=>'缺少可用佐证或有疑问',
+                        };
+                        echo '<p><strong>'.h((string)($claim['claim']??'')).'</strong><br><small>'.h($stateLabel).
+                            '；'.h((string)($claim['reason']??'')).'</small>';
+                        foreach((array)($claim['source_indexes']??[]) as $ref) {
+                            $i=(int)$ref-1;
+                            if (!isset($evidence[$i]['url'])) continue;
+                            $url=safe_link((string)$evidence[$i]['url']);
+                            if ($url!=='') echo ' <a href="'.h($url).'" target="_blank" rel="noopener noreferrer nofollow">索引线索 #'.(int)$ref.'</a>';
+                        }
+                        echo '</p>';
+                    }
+                }
                 if ($evidence) {
                     echo '<p class="muted">搜索索引交叉核对线索（未逐页验证，非事实证明）：</p>';
                     foreach(array_slice($evidence,0,5) as $entry) {
