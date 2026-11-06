@@ -47,6 +47,7 @@ require_once __DIR__ . '/agent_store.php';
 require_once __DIR__ . '/agent_robots.php';
 require_once __DIR__ . '/agent_discovery.php';
 require_once __DIR__ . '/agent_formats.php';
+require_once __DIR__ . '/agent_research_admin.php';
 require_once __DIR__ . '/agent_attribution.php';
 require_once __DIR__ . '/agent_ai.php';
 require_once __DIR__ . '/agent_review.php';
