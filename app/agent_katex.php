@@ -6,9 +6,20 @@ declare(strict_types=1);
  * run authored JS or expose TeX as executable HTML. Unsupported TeX falls back
  * to the built-in limited parser and original editable <pre><code>.
  */
+function agent_katex_node_bin(): string
+{
+    $standard=url_import_bin('node');
+    if($standard!=='') return $standard;
+    $configured=(string)(getenv('HOWHUB_NODE_BIN')?:'');
+    if($configured==='' || !str_starts_with($configured,'/') ||
+        strlen($configured)>255 || str_contains($configured,'..')) return '';
+    $real=realpath($configured);
+    return $real!==false && is_file($real) && is_executable($real)?$real:'';
+}
+
 function agent_katex_available(): bool
 {
-    return url_import_bin('node')!=='' &&
+    return agent_katex_node_bin()!=='' &&
         is_file(HOWHUB_ROOT.'/node_modules/katex/dist/katex.js') &&
         is_file(HOWHUB_ROOT.'/bin/katex-mathml.cjs');
 }
@@ -28,7 +39,7 @@ function agent_katex_mathml(string $tex): string
     try {
         if(file_put_contents($path,$tex,LOCK_EX)!==strlen($tex)) return '';
         try {
-            $output=url_import_process([url_import_bin('node'),
+            $output=url_import_process([agent_katex_node_bin(),
                 HOWHUB_ROOT.'/bin/katex-mathml.cjs',$path],5,36000);
         } catch(Throwable $e) {return '';}
         if(!preg_match('~<math\b[^>]*>[\s\S]*?</math>~u',$output,$match)) return '';
