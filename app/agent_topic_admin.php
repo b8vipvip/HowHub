@@ -21,6 +21,18 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '原创选题已拒绝';
     }
+    if ($action==='topic_budget_settings') {
+        $articles=min(24,max(1,(int)($post['articles']??8)));
+        $images=min(8,max(0,(int)($post['images']??2)));
+        set_setting('agent_topic_article_daily',(string)$articles);
+        set_setting('agent_topic_image_daily',(string)$images);
+        return '每日原创 AI 预算已保存；已消耗额度按过去 24 小时统计';
+    }
+    if ($action==='topic_skip_image') {
+        $pdo->prepare("UPDATE agent_topic_ideas SET asset_status='skipped' WHERE id=? AND status='review' AND asset_status='pending'")
+            ->execute([$id]);
+        return '已跳过该文章的待生成插画，可继续人工审核';
+    }
     if ($action==='topic_image_settings') {
         $model=trim((string)($post['model']??'gpt-image-1'));
         if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:+-]{0,100}$/D',$model)) {
@@ -43,6 +55,14 @@ function agent_topic_admin_section(PDO $pdo): void
     echo '<section class="admin-panel"><h2>原创选题 Agent（默认创作模式）</h2>';
     echo '<p class="muted">自动从搜索结果与 RSS/Atom 中提取标题/问题，不访问文章正文，也不使用他人的图片和视频。AI 重新拟题，从零生成教程步骤、表格、公式和流程图；原创图片需单独启用。网站 URL 仅保存在后台审计信息中，不显示在原创文章正文里。</p>';
     echo '<p>待写作：<strong>'.$pending.'</strong>　待审核：<strong>'.$review.'</strong>　原创图片：'.($enabled?'已启用':'关闭').'</p>';
+    $budgetArticles=min(24,max(1,(int)setting('agent_topic_article_daily','8')));
+    $budgetImages=min(8,max(0,(int)setting('agent_topic_image_daily','2')));
+    $count=$pdo->prepare('SELECT COUNT(*) FROM agent_topic_runs WHERE kind=? AND requested_at>?');
+    $count->execute(['article',time()-86400]);$usedArticles=(int)$count->fetchColumn();
+    $count->execute(['image',time()-86400]);$usedImages=(int)$count->fetchColumn();
+    echo '<p class="muted">过去 24 小时 AI 调用预算：文章 '.$usedArticles.'/'.$budgetArticles.'；原创图片 '.$usedImages.'/'.$budgetImages.'（失败也计费计数，防止重试循环）</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().'<input type="hidden" name="action" value="topic_budget_settings"><label>每日最多原创文章生成<input type="number" name="articles" min="1" max="24" value="'.$budgetArticles.'"></label><label>每日最多原创图片生成<input type="number" name="images" min="0" max="8" value="'.$budgetImages.'"></label><button class="button secondary" type="submit">保存 AI 调用预算</button></form>';
+
     echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
          '<input type="hidden" name="action" value="topic_add">'.
          '<label>手动新增选题 / 常见问题<input name="title" required maxlength="180" placeholder="例如：怎样排查家中 Wi-Fi 频繁断线？"></label>'.
@@ -74,6 +94,9 @@ function agent_topic_admin_section(PDO $pdo): void
             echo '<p class="muted">内部选题线索（不加入正文）：'.h($item['source_url']?:'管理员输入').
                 '</p><p class="muted">审阅问题：'.h($item['review_notes']).'</p>';
             echo '<div class="article-content">'.sanitize_content($item['html']).'</div>';
+            if($item['status']==='review' && $item['asset_status']==='pending') {
+                echo '<form method="post" action="/admin/agent/action">'.csrf_input().'<input type="hidden" name="action" value="topic_skip_image"><input type="hidden" name="id" value="'.(int)$item['id'].'"><button class="button secondary" type="submit">跳过原创插画，直接审核文字</button></form>';
+            }
             if($item['status']==='review') {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
                     '<input type="hidden" name="action" value="topic_approve">'.
