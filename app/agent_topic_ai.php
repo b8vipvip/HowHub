@@ -175,6 +175,15 @@ function agent_topic_process(PDO $pdo,array $idea,?callable $ai=null): array
                $imagePending?$result['image_prompt']:'',$imagePending?'pending':'none',
                json_encode($result['issues'],JSON_UNESCAPED_UNICODE),time(),$id,
            ]);
+        $pdo->prepare("INSERT INTO agent_topic_quality(idea_id,status) VALUES (?,'pending')
+            ON CONFLICT(idea_id) DO UPDATE SET status='pending',risk='unknown',
+                issues_json='[]',evidence_json='[]',model_notes='',checked_at=0,override_reason=''")
+            ->execute([$id]);
+        $audio=setting('agent_original_audio_enabled','0')==='1'?'pending':'off';
+        $video=setting('agent_original_video_enabled','0')==='1'?'pending':'off';
+        $pdo->prepare("INSERT INTO agent_topic_av(idea_id,audio_status,video_status) VALUES (?,?,?)
+          ON CONFLICT(idea_id) DO UPDATE SET audio_status=excluded.audio_status,video_status=excluded.video_status,
+            audio_url='',video_url='',notes=''")->execute([$id,$audio,$video]);
         agent_event($pdo,'topic_ai','success','仅从选题独立创作；待审核，无外站正文和媒体');
         return ['status'=>'review','score'=>$result['score'],'image_pending'=>$imagePending];
     } catch (Throwable $e) {

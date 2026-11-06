@@ -99,6 +99,12 @@ try {
         str_contains($html,'资料来源：')) {
         throw new RuntimeException('Original article did not include self-generated rich HTML or mistakenly exposed source metadata');
     }
+    $quality=agent_topic_quality_process($pdo,$updated,
+        static fn(string $system,string $user):array=>[
+            'risk'=>'low','pass'=>true,'issues'=>[],
+            'checklist'=>['检查设备型号的说明书'], 'notes'=>'没有发现明显自相矛盾的操作步骤',
+        ]);
+    if ($quality['status']!=='reviewed') throw new RuntimeException('Required second-pass review failed');
     $guideId=agent_topic_approve($pdo,(int)$idea['id']);
     $guide=$pdo->prepare('SELECT body_html,status FROM guides WHERE id=?');
     $guide->execute([$guideId]);$draft=$guide->fetch();

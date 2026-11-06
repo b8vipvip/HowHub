@@ -32,6 +32,8 @@ jobs:
         run: php tests/agent_research.php
       - name: Topic-only original content and multimodal workflow tests
         run: php tests/agent_topic.php
+      - name: Second-pass quality and original AV tests
+        run: php tests/agent_quality_av.php
       - name: HTTP and admin end-to-end checks
         run: bash tests/e2e.sh
       - name: Verified update and rollback integration test

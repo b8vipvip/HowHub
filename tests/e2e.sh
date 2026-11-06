@@ -79,6 +79,48 @@ status=$(curl -sS -b "$jar" -c "$jar" -o /dev/null -w '%{http_code}' -X POST \
   --data-urlencode 'password=test-password-12345' http://127.0.0.1:8099/admin/login)
 test "$status" = "303"
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin | grep -q '教程总数'
+
+# Private generated media: only authenticated admins can preview drafts,
+# and only actually published guides make the same file stream public.
+stream_id=$(php <<'PHP'
+<?php
+require 'app/bootstrap.php';
+$pdo=database();
+$bytes="\x00\x00\x00\x18ftypisom".str_repeat("\0",512);
+$url=agent_topic_generated_file($pdo,$bytes,'video');
+$id=(int)substr($url,6);
+$html='<figure><video controls src="/media/stream/'.$id.'"></video></figure><p><a href="'.$url.'">原创文件下载</a></p>';
+$pdo->prepare("INSERT INTO guides(title,slug,summary,body_html,status) VALUES (?,?,?,?,'draft')")
+    ->execute(['CI 合成演示视频','ci-original-av-stream','仅供测试的本地文件',$html]);
+echo $id;
+PHP
+)
+test -n "$stream_id"
+video_private=$(curl -sS -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:8099/media/stream/$stream_id")
+test "$video_private" = '404'
+video_admin=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:8099/media/stream/$stream_id")
+test "$video_admin" = '200'
+php -r 'require "app/bootstrap.php"; database()->exec("UPDATE guides SET status='\''published'\'' WHERE slug='\''ci-original-av-stream'\''");'
+video_partial=$(curl -sS -H 'Range: bytes=0-23' -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:8099/media/stream/$stream_id")
+test "$video_partial" = '206'
+video_invalid=$(curl -sS -H 'Range: bytes=999999-' -o /dev/null -w '%{http_code}' \
+  "http://127.0.0.1:8099/media/stream/$stream_id")
+test "$video_invalid" = '416'
+curl -fsS "http://127.0.0.1:8099/guide/ci-original-av-stream" | grep -q 'media/stream'
+php <<'PHP'
+<?php
+require 'app/bootstrap.php';
+$pdo=database();
+$pdo->exec("DELETE FROM guides WHERE slug='ci-original-av-stream'");
+$q=$pdo->query("SELECT id FROM media_assets WHERE original_name='AI原创教程演示视频.mp4' ORDER BY id DESC LIMIT 1");
+$id=$q->fetchColumn();
+if ($id) media_delete($pdo,(int)$id);
+PHP
+echo 'Original AV stream e2e passed: draft access restriction / published media / Range 206 / invalid Range 416'
+
 # A held telemetry lock must not prevent a NEW admin session from logging in.
 held_login_jar=$(mktemp)
 held_login_page=$(mktemp)
