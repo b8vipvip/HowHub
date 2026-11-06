@@ -5,6 +5,8 @@ $pdo=database();
 $previousMode=setting('agent_creation_mode','');
 $previousImage=setting('agent_original_image_enabled','0');
 $previousGlobal=setting('agent_enabled','0');
+$originalArticleBudget=setting('agent_topic_article_daily','');
+$originalImageBudget=setting('agent_topic_image_daily','');
 $sourceId=0;$topicIds=[];$guideId=0;$imageUrl='';
 try {
     set_setting('agent_creation_mode','topic_only');
@@ -151,6 +153,15 @@ try {
         throw new RuntimeException('Original guide picture is missing or references a foreign site');
     }
 
+    // Hard model budgets must be atomic and include failed attempts.
+    set_setting('agent_topic_article_daily','1');
+    set_setting('agent_topic_image_daily','0');
+    if (!agent_topic_budget_take($pdo,'article',-999)) {
+        throw new RuntimeException('Could not reserve first original AI article call');
+    }
+    if (agent_topic_budget_take($pdo,'article',-999) || agent_topic_budget_take($pdo,'image',-999)) {
+        throw new RuntimeException('Daily AI call budget was ignored');
+    }
     echo "Topic-only original Agent passed: feed headings / no full pages / original multi-format HTML / review only / no attribution / local AI image\n";
 } finally {
     if ($guideId) $pdo->prepare('DELETE FROM guides WHERE id=?')->execute([$guideId]);
@@ -165,4 +176,7 @@ try {
     set_setting('agent_enabled',$previousGlobal);
     set_setting('agent_creation_mode',$previousMode);
     set_setting('agent_original_image_enabled',$previousImage);
+    set_setting('agent_topic_article_daily',$originalArticleBudget);
+    set_setting('agent_topic_image_daily',$originalImageBudget);
+    $pdo->exec('DELETE FROM agent_topic_runs WHERE idea_id=-999');
 }
