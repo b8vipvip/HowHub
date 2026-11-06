@@ -212,15 +212,17 @@ function agent_topic_admin_section(PDO $pdo): void
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
+    $modelVideoLookup=$pdo->prepare('SELECT * FROM agent_ai_video_jobs WHERE idea_id=?');
     foreach($records as $item) {
         $id=(int)$item['id'];
         $qualityLookup->execute([$id]);
         $qualityStatus=$qualityLookup->fetch();
         $avLookup->execute([$id]);$avStatus=$avLookup->fetch();
+        $modelVideoLookup->execute([$id]);$aiVid=$modelVideoLookup->fetch();
         $heading=$item['title'] ?: $item['raw_title'];
         echo '<tr><td><strong>'.h($heading).'</strong><br><small>原始问题：'.h(mb_substr((string)$item['raw_title'],0,180)).
             '；领域：'.h($item['industry']).'；仅供内部审计：'.h($item['source_method']).'</small></td>';
-        echo '<td>'.h($item['status']).' / '.(int)$item['score'].' 分<br><small>独立审查：'.h($qualityStatus['status']??'旧版记录').' / 风险 '.h($qualityStatus['risk']??'未评级').'</small><br><small>原创配图：'.h($item['asset_status']).'；配音：'.h($avStatus['audio_status']??'未设置').'；视频：'.h($avStatus['video_status']??'未设置').'</small></td>';
+        echo '<td>'.h($item['status']).' / '.(int)$item['score'].' 分<br><small>独立审查：'.h($qualityStatus['status']??'旧版记录').' / 风险 '.h($qualityStatus['risk']??'未评级').'</small><br><small>原创配图：'.h($item['asset_status']).'；配音：'.h($avStatus['audio_status']??'未设置').'；视频：'.h($avStatus['video_status']??'未设置').'；AI 视频：'.h($aiVid['status']??'未配置').'</small></td>';
         echo '<td><a class="button secondary" href="/admin/agent?topic_idea='.$id.'">预览原创内容</a></td></tr>';
     }
     echo '</tbody></table></div>';
@@ -236,6 +238,7 @@ function agent_topic_admin_section(PDO $pdo): void
             $qualityLookup->execute([$selected]);
             $qc=$qualityLookup->fetch();
             $avLookup->execute([$selected]);$av=$avLookup->fetch();
+            $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
             if ($av) {
                 echo '<p class="muted">原创配音：'.h($av['audio_status']).'；视频：'.h($av['video_status']).'；'.h($av['notes']).'</p>';
                 foreach(['audio'=>'配音','video'=>'视频'] as $kind=>$label) {
@@ -305,7 +308,7 @@ function agent_topic_admin_section(PDO $pdo): void
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
                     '<input type="hidden" name="action" value="topic_approve">'.
                     '<input type="hidden" name="id" value="'.(int)$item['id'].'">'.
-                    '<button class="button primary" type="submit" '.($item['asset_status']==='pending' || ($qc && !in_array($qc['status'],['reviewed','waived'],true)) || ($av && ($av['audio_status']==='pending' || $av['video_status']==='pending')) ?'disabled':'').'>人工确认并创建未发布草稿</button></form>';
+                    '<button class="button primary" type="submit" '.($item['asset_status']==='pending' || ($qc && !in_array($qc['status'],['reviewed','waived'],true)) || ($av && ($av['audio_status']==='pending' || $av['video_status']==='pending')) || ($modelVideo && in_array($modelVideo['status'],['queued','running','ready'],true)) ?'disabled':'').'>人工确认并创建未发布草稿</button></form>';
             }
             if(in_array($item['status'],['queued','review','error'],true)) {
                 echo '<form method="post" action="/admin/agent/action">'.csrf_input().
