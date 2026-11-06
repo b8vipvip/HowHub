@@ -101,6 +101,20 @@ try {
     if(agent_ai_video_process($pdo,$job2,$idea2,$transport,$t+600)['status']!=='idle') {
         throw new RuntimeException('Automatic re-creation after provider timeout could double bill');
     }
+    // An exhausted paid-video budget must not monopolize scheduler ticks.
+    $third='CI视频额度饥饿保护'.bin2hex(random_bytes(5));
+    if(!agent_topic_enqueue($pdo,$third,'','manual','教育','zh')) {
+        throw new RuntimeException('Third budget test idea missing');
+    }
+    $q->execute([$third]);$thirdIdea=$q->fetch();
+    $created[]=(int)$thirdIdea['id'];
+    $pdo->prepare("UPDATE agent_topic_ideas SET status='review',title=?,html=? WHERE id=?")
+        ->execute(['原创视频生成配额边界检查',$html,(int)$thirdIdea['id']]);
+    agent_ai_video_enqueue($pdo,(int)$thirdIdea['id']);
+    set_setting('agent_ai_video_daily','0');
+    if(agent_topic_next($pdo)!==null) {
+        throw new RuntimeException('Paid video budget exhaustion kept returning a blocking scheduler task');
+    }
     echo "Original AI video passed: queued, polling, local MP4, no source URL, failure no retries, safe IDs\n";
 } finally {
     foreach($created as $id) {
