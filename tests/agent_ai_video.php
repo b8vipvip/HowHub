@@ -3,7 +3,8 @@ declare(strict_types=1);
 require dirname(__DIR__).'/app/bootstrap.php';
 $pdo=database();
 $keys=['agent_ai_video_base','agent_ai_video_key_cipher','agent_ai_video_model',
-    'agent_ai_video_enabled','agent_ai_video_daily','agent_ai_video_request_format'];
+    'agent_ai_video_enabled','agent_ai_video_daily','agent_ai_video_request_format',
+    'agent_ai_video_seconds','agent_ai_video_size','agent_ai_video_max_mb'];
 $prior=[];
 foreach($keys as $key) $prior[$key]=setting($key,'');
 $created=[];$assets=[];
@@ -14,6 +15,9 @@ try {
     set_setting('agent_ai_video_enabled','1');
     set_setting('agent_ai_video_daily','2');
     set_setting('agent_ai_video_request_format','json');
+    set_setting('agent_ai_video_seconds','60');
+    set_setting('agent_ai_video_size','720x1280');
+    set_setting('agent_ai_video_max_mb','64');
     $title='CI异步视频原创示例'.bin2hex(random_bytes(5));
     if(!agent_topic_enqueue($pdo,$title,'','manual','教育','zh')) {
         throw new RuntimeException('Could not create test topic');
@@ -33,6 +37,9 @@ try {
     $transport=static function(string $action,array $payload) use (&$calls):array|string {
         $calls[]=$action;
         if($action==='start') {
+            if (($payload['seconds']??null)!==60 || ($payload['size']??'')!=='720x1280') {
+                throw new RuntimeException('Long video request options not snapshotted for the new job');
+            }
             if(str_contains($payload['prompt'],'source_url') ||
                 str_contains($payload['prompt'],'http://') ||
                 !str_contains($payload['prompt'],'独立描述第一个安全操作要点')) {
@@ -101,6 +108,29 @@ try {
     if(agent_ai_video_process($pdo,$job2,$idea2,$transport,$t+600)['status']!=='idle') {
         throw new RuntimeException('Automatic re-creation after provider timeout could double bill');
     }
+    // Bounded disk streaming can archive videos LARGER than the old 18MB
+    // in-memory limit, without changing the smaller slideshow output cap.
+    $large="\x00\x00\x00\x18ftypisom".str_repeat("\0",19*1048576);
+    $temporary=agent_ai_video_receive_mp4('job_CI_long_01',20,
+        static fn(string $action,array $input):string=>$large);
+    try {
+        if(!is_file($temporary) || filesize($temporary)!==strlen($large)) {
+            throw new RuntimeException('Provider video was not written to bounded temporary storage');
+        }
+        $url=agent_ai_video_register_mp4($pdo,$temporary,20);
+        $assets[]=$url;
+        $check=$pdo->prepare('SELECT * FROM media_assets WHERE url=?');$check->execute([$url]);
+        $asset=$check->fetch();
+        if(!$asset || $asset['byte_size']!==strlen($large) || !media_file_path($asset)) {
+            throw new RuntimeException('Private archive failed for MP4 larger than old limit');
+        }
+    } finally {@unlink($temporary);}
+    $blocked=false;
+    try {
+        agent_ai_video_receive_mp4('job_CI_long_01',1,
+            static fn(string $action,array $input):string=>$large);
+    } catch(RuntimeException $e) {$blocked=true;}
+    if(!$blocked) throw new RuntimeException('Stream download exceeded per-job MB cap');
     // An exhausted paid-video budget must not monopolize scheduler ticks.
     $third='CI视频额度饥饿保护'.bin2hex(random_bytes(5));
     if(!agent_topic_enqueue($pdo,$third,'','manual','教育','zh')) {
