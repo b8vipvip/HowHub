@@ -187,8 +187,18 @@ function agent_topic_video_process(PDO $pdo,array $idea,?callable $renderer=null
             $found=$asset->fetch();
             if ($found) $audioFile=media_file_path($found)?:'';
         }
+        $imageFile='';
+        if (($idea['asset_status']??'')==='complete' && ($idea['image_url']??'')!=='') {
+            $asset=$pdo->prepare("SELECT * FROM media_assets WHERE url=? AND kind='image'");
+            $asset->execute([$idea['image_url']]);
+            $image=$asset->fetch();
+            if($image) {
+                $path=media_file_path($image)?:'';
+                if($path!=='' && preg_match('/\.(png|jpe?g|webp)$/i',$path)) $imageFile=$path;
+            }
+        }
         $bytes=$renderer!==null ? $renderer($slides,$audioFile) :
-            agent_topic_video_render($slides,$audioFile);
+            agent_topic_video_render($slides,$audioFile,$imageFile);
         if (!is_string($bytes)) throw new RuntimeException('合成视频返回数据无效');
         $url=agent_topic_generated_file($pdo,$bytes,'video');
         agent_topic_av_append($pdo,$id,'video',$url);
