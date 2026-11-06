@@ -119,7 +119,7 @@ function agent_topic_render(array $data): array
         }
         $diagram=agent_topic_text($section['diagram']??'',1800);
         if ($diagram!=='') {
-            $preview=agent_mermaid_linear_preview($diagram);
+            $preview=agent_mermaid_diagram_preview($diagram);
             if ($preview!=='') $html.=$preview;
             $html.='<pre><code>'.h($diagram).'</code></pre>';
         }
