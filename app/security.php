@@ -119,7 +119,7 @@ function safe_editor_style(string $style, string $tag): string
 function safe_editor_class(string $class, string $tag): string
 {
     $allowed = $tag === 'img' ? ['guide-img-small', 'guide-img-medium'] :
-        ['hh-note', 'hh-tip', 'hh-warning', 'hh-step', 'hh-lead', 'hh-accent', 'hh-highlight', 'hh-muted', 'hh-center'];
+        ['hh-note', 'hh-tip', 'hh-warning', 'hh-step', 'hh-lead', 'hh-accent', 'hh-highlight', 'hh-muted', 'hh-center', 'hh-source-attribution'];
     $classes = preg_split('/\s+/', trim($class)) ?: [];
     return implode(' ', array_slice(array_values(array_unique(array_intersect($classes, $allowed))), 0, 3));
 }
