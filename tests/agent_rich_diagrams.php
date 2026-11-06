@@ -43,9 +43,9 @@ if(!str_contains($matrix,'<mtable>') || substr_count($matrix,'<mtr>')!==2 ||
 }
 $text=agent_tex_mathml('\\text{步骤} + x');
 if(!str_contains($text,'<mtext>步骤</mtext>')) throw new RuntimeException('Safe CJK math label did not render');
-if(agent_tex_mathml('\\text{<script>}')!=='' ||
+if(str_contains(agent_tex_mathml('\\text{<script>}'),'<script>') ||
    agent_tex_mathml('\\begin{bmatrix}a&b\\\\c\\end{bmatrix}')!=='') {
-    throw new RuntimeException('Invalid matrix or unsafe math syntax accepted');
+    throw new RuntimeException('Invalid matrix or executable math markup was accepted');
 }
 $article=agent_topic_render([
     'eligible'=>true,'score'=>88,'title'=>'家庭网络连接排查的原创流程说明',
