@@ -105,6 +105,17 @@ try {
         str_contains($idea['html'],'<video src="https://')) {
         throw new RuntimeException('Original media not delivered as local private downloads');
     }
+    $sanitized=sanitize_content('<video controls src="/media/stream/123"></video>'.
+        '<audio src="/media/stream/456"></audio>'.
+        '<video src="https://third-party.example/video.mp4" autoplay></video>'.
+        '<audio src="javascript:alert(1)"></audio>');
+    if (substr_count($sanitized,'<video')!==1 || substr_count($sanitized,'<audio')!==1 ||
+        str_contains($sanitized,'third-party.example') || str_contains($sanitized,'javascript:')) {
+        throw new RuntimeException('Audio/video HTML sanitizer allowed untrusted remote media');
+    }
+    if (!str_contains($idea['html'],'/media/stream/')) {
+        throw new RuntimeException('Original media embed did not include HTML5 player');
+    }
     $draftId=agent_topic_approve($pdo,$id);
     $draft=$pdo->prepare('SELECT status,body_html FROM guides WHERE id=?');
     $draft->execute([$draftId]);$article=$draft->fetch();
