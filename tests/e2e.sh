@@ -121,6 +121,8 @@ agent_auth=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/admin
 test "$agent_auth" = '303'
 agent_csrf=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'action=global&enabled=1' http://127.0.0.1:8099/admin/agent/action)
 test "$agent_csrf" = '419'
+original_csrf=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'action=topic_add&title=unauthorized' http://127.0.0.1:8099/admin/agent/action)
+test "$original_csrf" = '419'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-toggle-source'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-preview-dialog'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-ai-optimize'
