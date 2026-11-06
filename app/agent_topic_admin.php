@@ -46,6 +46,11 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         $result=agent_diagram_process($pdo,$id);
         return ($result['status']??'')==='complete'?'已生成或复用本站原创的安全流程 PNG':'没有可渲染的图源码';
     }
+    if ($action==='topic_fact_evidence_settings') {
+        $days=min(180,max(7,(int)($post['days']??30)));
+        set_setting('agent_fact_evidence_days',(string)$days);
+        return '原始资料的有效性窗口已设置为 '.$days.' 天；超过有效期或来源被禁用的旧证据不再作为交叉支持';
+    }
     if ($action==='topic_fact_auto_settings') {
         $enabled=($post['enabled']??'')==='1';
         $daily=min(8,max(0,(int)($post['daily']??2)));
@@ -291,6 +296,13 @@ function agent_topic_admin_section(PDO $pdo): void
          '<label>自动生成原创关系图<select name="enabled"><option value="0" '.(!$diagramOn?'selected':'').'>关闭（保留 HTML 原生预览）</option><option value="1" '.($diagramOn?'selected':'').'>开启（需 dot）</option></select></label>'.
          '<label>每日图形数量<input type="number" min="0" max="8" name="daily" value="'.$diagramDaily.'"></label>'.
          '<button class="button secondary" type="submit">保存图形渲染设置</button></form>';
+    $evidenceDays=min(180,max(7,(int)setting('agent_fact_evidence_days','30')));
+    echo '<h3>原始资料有效期与独立站点交叉核查</h3>';
+    echo '<p class="muted">同一域名只计为一个来源；两个不同已启用站点的原始文档一致时，才记为“跨来源支持线索”；来源被停用、证据过期或文档冲突时自动降级。绝不直接作为事实认证或发布许可。</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+        '<input type="hidden" name="action" value="topic_fact_evidence_settings">'.
+        '<label>原始资料有效期（7–180天）<input type="number" min="7" max="180" name="days" value="'.$evidenceDays.'"></label>'.
+        '<button class="button secondary" type="submit">保存核查有效期</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
@@ -403,6 +415,25 @@ function agent_topic_admin_section(PDO $pdo): void
                             if ($url!=='') echo ' <a href="'.h($url).'" target="_blank" rel="noopener noreferrer nofollow">索引线索 #'.(int)$ref.'</a>';
                         }
                         echo '</p>';
+                    }
+                }
+                if ($claims) {
+                    $aggregate=agent_fact_consensus_for_idea($pdo,$selected);
+                    echo '<h4>原始资料跨站核查摘要（不等于事实认证）</h4>';
+                    $labels=[
+                        'cross_source_support'=>'两个以上独立站点提供一致的原文支持线索',
+                        'single_source_support'=>'仅有一个站点支持，证据不足',
+                        'conflicting_evidence'=>'存在与教程主张相矛盾的文档，需优先复核',
+                        'expired_evidence'=>'原有证据已经过期',
+                        'insufficient_evidence'=>'尚无可用的独立原始资料',
+                    ];
+                    foreach($aggregate as $part) {
+                        echo '<p><strong>主张 #'.((int)$part['claim_index']+1).'：'.h(mb_substr($part['claim'],0,150)).
+                            '</strong><br><small>'.h($labels[$part['status']]??$part['status']).
+                            '；原文支持站点：'.(int)$part['support_count'].
+                            '；冲突站点：'.(int)$part['conflict_count'].
+                            '；过期/撤销证据：'.((int)$part['expired_count']+(int)$part['disabled_count']).
+                            '；有效窗口：'.(int)$part['valid_days'].' 天</small></p>';
                     }
                 }
                 if ($claims) {
