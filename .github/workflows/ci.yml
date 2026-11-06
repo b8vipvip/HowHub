@@ -12,6 +12,11 @@ jobs:
           php-version: '8.3'
           extensions: mbstring, dom, pdo_sqlite, fileinfo, curl, openssl
           coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned offline KaTeX for actual MathML regression
+        run: npm install --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Browser script syntax
@@ -36,8 +41,14 @@ jobs:
         run: php tests/agent_quality_av.php
       - name: Expanded diagram and MathML tests
         run: php tests/agent_rich_diagrams.php
+      - name: Real offline KaTeX advanced formula and trust limits
+        run: php tests/agent_katex.php
+        env:
+          HOWHUB_REQUIRE_KATEX_CI: '1'
       - name: Claim to indexed evidence safety tests
         run: php tests/agent_claim_checks.php
+      - name: Primary-source consensus, freshness and revocation tests
+        run: php tests/agent_fact_consensus.php
       - name: Agent runtime prerequisite diagnostics
         run: php tests/agent_runtime.php && php bin/agent-check.php > /tmp/howhub-agent-check.json
       - name: Async original video provider adapter tests
