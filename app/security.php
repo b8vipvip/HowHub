@@ -139,8 +139,8 @@ function sanitize_content(string $html): string
     if (!$root) {
         return '';
     }
-    $allowed = array_fill_keys(['p', 'h2', 'h3', 'h4', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'a', 'img', 'figure', 'figcaption', 'hr', 'br', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'math', 'mrow', 'mi', 'mn', 'mo', 'msup', 'msub', 'msubsup', 'mfrac', 'msqrt', 'mroot', 'mtext', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd'], true);
-    $blocked = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'svg', 'video', 'audio', 'input', 'button', 'textarea', 'select', 'template'];
+    $allowed = array_fill_keys(['p', 'h2', 'h3', 'h4', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'a', 'img', 'figure', 'figcaption', 'video', 'audio', 'hr', 'br', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'math', 'mrow', 'mi', 'mn', 'mo', 'msup', 'msub', 'msubsup', 'mfrac', 'msqrt', 'mroot', 'mtext', 'munder', 'mover', 'munderover', 'mtable', 'mtr', 'mtd'], true);
+    $blocked = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'svg', 'input', 'button', 'textarea', 'select', 'template'];
     $walk = function (DOMNode $node) use (&$walk, $allowed, $blocked): void {
         foreach (iterator_to_array($node->childNodes) as $child) {
             if (!$child instanceof DOMElement) {
@@ -185,6 +185,17 @@ function sanitize_content(string $html): string
                 $child->setAttribute('src', $src);
                 $child->setAttribute('alt', $alt);
                 $child->setAttribute('loading', 'lazy');
+            }
+            if (in_array($tag,['video','audio'],true)) {
+                $mediaSrc=$child->getAttribute('src');
+                if (!preg_match('~^/media/stream/[1-9][0-9]{0,12}$~D',$mediaSrc)) {
+                    // Never allow models to embed a third-party player or media.
+                    $node->removeChild($child);continue;
+                }
+                $child->setAttribute('src',$mediaSrc);
+                $child->setAttribute('controls','controls');
+                $child->setAttribute('preload','metadata');
+                if ($tag==='video') $child->setAttribute('playsinline','playsinline');
             }
             if (in_array($tag, ['th','td'], true)) {
                 if ($colspan >= 2 && $colspan <= 20) $child->setAttribute('colspan',(string)$colspan);
