@@ -124,8 +124,13 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         return '已保存异步 AI 视频供应商：只对新创建的原创教程生效；正式视频 API 需供应商实际支持';
     }
     if ($action==='topic_ai_video_skip') {
-        $pdo->prepare("UPDATE agent_ai_video_jobs SET status='skipped',error='管理员停止本地轮询'
-            WHERE idea_id=? AND status IN ('queued','running','ready','failed')")->execute([$id]);
+        $stop=$pdo->prepare("UPDATE agent_ai_video_jobs SET status='skipped',error='管理员停止本地轮询'
+            WHERE idea_id=? AND status IN ('queued','running','ready','failed')
+              AND lease_until<=?");
+        $stop->execute([$id,time()]);
+        if($stop->rowCount()!==1) {
+            throw new RuntimeException('AI 视频任务正在执行或已结束，当前无法安全跳过；请稍后查看任务状态');
+        }
         return '已停止本地视频任务；如果远端已经创建任务，仍可能计费，请到供应商后台检查';
     }
     if ($action==='topic_ai_video_retry') {
@@ -135,8 +140,12 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
         if($job['remote_id']==='' && ($post['accept_charge_risk']??'')!=='1') {
             throw new RuntimeException('上次提交结果不明，可能已经计费；如要重新创建，必须明确确认重复扣费风险');
         }
-        $pdo->prepare("UPDATE agent_ai_video_jobs SET status=CASE WHEN remote_id='' THEN 'queued' ELSE 'running' END,
-            next_check=0,error='' WHERE idea_id=? AND status='failed'")->execute([$id]);
+        $resume=$pdo->prepare("UPDATE agent_ai_video_jobs SET status=CASE WHEN remote_id='' THEN 'queued' ELSE 'running' END,
+            next_check=0,error='' WHERE idea_id=? AND status='failed' AND lease_until<=?");
+        $resume->execute([$id,time()]);
+        if($resume->rowCount()!==1) {
+            throw new RuntimeException('失败任务正在处理中，无法安全恢复；请稍后重试');
+        }
         return '已恢复失败任务；有远端 ID 时将继续查询，重建任务仍受每日预算限制';
     }
     if ($action==='topic_media_settings') {
