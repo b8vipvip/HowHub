@@ -33,6 +33,30 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_media_settings') {
+        $model=trim((string)($post['tts_model']??'tts-1'));
+        $voice=trim((string)($post['voice']??'alloy'));
+        if (!preg_match('/^[a-zA-Z0-9._:+-]{1,100}$/D',$model) ||
+            !preg_match('/^[a-zA-Z0-9_-]{1,40}$/D',$voice)) throw new InvalidArgumentException('配音模型或音色格式无效');
+        set_setting('agent_original_tts_model',$model);
+        set_setting('agent_original_tts_voice',$voice);
+        set_setting('agent_original_audio_enabled',($post['audio_enabled']??'')==='1'?'1':'0');
+        set_setting('agent_original_video_enabled',($post['video_enabled']??'')==='1'?'1':'0');
+        set_setting('agent_original_audio_daily',(string)min(8,max(0,(int)($post['audio_daily']??2))));
+        set_setting('agent_original_video_daily',(string)min(8,max(0,(int)($post['video_daily']??2))));
+        return '已保存原创配音和视频设置（只用于今后新生成的教程）';
+    }
+    if ($action==='topic_media_skip' || $action==='topic_media_retry') {
+        $kind=(string)($post['kind']??'');
+        if (!in_array($kind,['audio','video'],true)) throw new InvalidArgumentException('媒体类型错误');
+        $column=$kind.'_status';
+        $from=$action==='topic_media_skip'?'pending':'failed';
+        $to=$action==='topic_media_skip'?'skipped':'pending';
+        $pdo->prepare("UPDATE agent_topic_av SET ".$column."=? WHERE idea_id=? AND ".$column."=?")
+            ->execute([$to,$id,$from]);
+        agent_event($pdo,'topic_media',$to,'管理员处理原创媒体任务 '.$kind);
+        return '媒体任务状态已更新';
+    }
     if ($action==='topic_review_settings') {
         $daily=min(24,max(0,(int)($post['reviews']??8)));
         $searchDaily=min(8,max(0,(int)($post['searches']??2)));
