@@ -129,6 +129,37 @@ function agent_math_sequence(string $s,int &$i,int $depth=0,bool $group=false): 
     return implode('',$output);
 }
 
+/**
+ * Safe multi-row MathML for piecewise cases, aligned equations and gathered
+ * steps. No arbitrary TeX packages, macros, external tools or JS.
+ */
+function agent_tex_multiline_mathml(string $tex): string
+{
+    if(!preg_match('/^\\\\begin\{(cases|aligned|gathered)\}([\s\S]{1,1800})\\\\end\{\1\}$/u',$tex,$m)) return '';
+    $kind=$m[1];
+    $rows=explode('\\\\',trim($m[2]));
+    if(!$rows || count($rows)>8) return '';
+    $table='<mtable>';
+    foreach($rows as $row) {
+        $parts=explode('&',$row);
+        if(count($parts)>2 || ($kind==='cases' && count($parts)!==2) ||
+           ($kind==='gathered' && count($parts)!==1)) return '';
+        $table.='<mtr>';
+        foreach($parts as $value) {
+            $value=trim($value);
+            if($value==='') return '';
+            $i=0;
+            try {$element=agent_math_sequence($value,$i);}
+            catch(Throwable $e){return '';}
+            if($element===''||$i!==strlen($value)) return '';
+            $table.='<mtd><mrow>'.$element.'</mrow></mtd>';
+        }
+        $table.='</mtr>';
+    }
+    $table.='</mtable>';
+    return sanitize_content('<math><mrow>'.($kind==='cases'?'<mo>{</mo>':'').$table.'</mrow></math>');
+}
+
 /** A restricted TeX matrix form, max 8x8, rendered as browser-native MathML. */
 function agent_tex_matrix_mathml(string $tex): string
 {
@@ -168,6 +199,8 @@ function agent_tex_mathml(string $tex): string
     if ($tex==='' || strlen($tex)>1900 || !preg_match('//u',$tex)) return '';
     if (str_starts_with($tex,'$$') && str_ends_with($tex,'$$')) $tex=substr($tex,2,-2);
     elseif (str_starts_with($tex,'$') && str_ends_with($tex,'$')) $tex=substr($tex,1,-1);
+    $multiline=agent_tex_multiline_mathml($tex);
+    if ($multiline!=='') return $multiline;
     $matrix=agent_tex_matrix_mathml($tex);
     if ($matrix!=='') return $matrix;
     // Expand only fixed paired delimiter markers, never arbitrary macros.
