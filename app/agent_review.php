@@ -71,9 +71,9 @@ function agent_inspect_resource(array $response, array $source): array
 }
 
 /** Licensed sources may carry pre-existing diagrams/tables and images into review. */
-function agent_licensed_html(array $review, array $inspection, string $url, array $source): array
+function agent_licensed_html(array $review, array $inspection, string $url, array $source, array $attribution = []): array
 {
-    $html = agent_summary_html($review,$url);
+    $html = agent_summary_html($review,$url,$attribution);
     $features=$inspection['features'];
     $html .= agent_structured_html($features);
     $media=[];
@@ -133,11 +133,12 @@ function agent_process_candidate(PDO $pdo, array $source, array $candidate, ?cal
                 ->execute([$review['score'],$hash,'AI 判断内容价值不足或缺少可复核依据',time(),$id]);
             return ['status'=>'rejected','score'=>$review['score']];
         }
-        $body=agent_summary_html($review,$url);
+        $attribution=agent_attribution_from_page((string)($inspection['raw_html']??''),$url,$source);
+        $body=agent_summary_html($review,$url,$attribution);
         $media=[];
         $archived = '';
         if ($source['rights_mode']==='licensed' && trim($source['rights_evidence'])!=='') {
-            $licensed=agent_licensed_html($review,$inspection,$url,$source);
+            $licensed=agent_licensed_html($review,$inspection,$url,$source,$attribution);
             $body=$licensed['html'];$media=$licensed['media'];
             // Only rehost the explicitly licensed origin file after the AI gate.
             // One already-budgeted source HTTP fetch, never a second background
@@ -158,7 +159,8 @@ function agent_process_candidate(PDO $pdo, array $source, array $candidate, ?cal
         }
         $stats=['source_kind'=>$inspection['kind'],'formats'=>$inspection['features']['counts'],
             'warnings'=>$inspection['features']['warnings'],'licensed'=>$source['rights_mode']==='licensed',
-            'source_asset'=>$archived !== '' ? 'archived' : 'not_applicable'];
+            'source_asset'=>$archived !== '' ? 'archived' : 'not_applicable',
+            'attribution'=>$attribution];
         $evidence=['score'=>$review['score'],'language'=>$review['language'],
             'category'=>$review['category'],'concerns'=>$review['concerns'],
             'verification'=>'single_source_not_independently_verified'];
