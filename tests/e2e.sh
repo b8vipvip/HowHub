@@ -123,6 +123,15 @@ agent_csrf=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'actio
 test "$agent_csrf" = '419'
 original_csrf=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' -X POST -d 'action=topic_add&title=unauthorized' http://127.0.0.1:8099/admin/agent/action)
 test "$original_csrf" = '419'
+topic_created=$(curl -sS -b "$jar" -o /dev/null -w '%{http_code}' \
+  --data-urlencode "csrf_token=$token" \
+  --data-urlencode 'action=topic_add' \
+  --data-urlencode 'title=CI原创新增问题如何检查网络连接？' \
+  --data-urlencode 'industry=信息技术' \
+  http://127.0.0.1:8099/admin/agent/action)
+test "$topic_created" = '303'
+php -r 'require "app/bootstrap.php"; $pdo=database(); $q=$pdo->query("SELECT id,source_url,status FROM agent_topic_ideas WHERE raw_title=\x27CI原创新增问题如何检查网络连接？\x27 LIMIT 1"); $row=$q->fetch(); if(!$row || $row["source_url"]!=="" || $row["status"]!=="queued") exit(1); $pdo->prepare("DELETE FROM agent_topic_ideas WHERE id=?")->execute([$row["id"]]);'
+echo 'Original Agent admin e2e passed: CSRF / admin-only manual topic / private queued creation'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-toggle-source'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-preview-dialog'
 curl -fsS -b "$jar" http://127.0.0.1:8099/admin/guides/new | grep -q 'editor-ai-optimize'
