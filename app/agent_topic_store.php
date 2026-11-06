@@ -95,6 +95,7 @@ function agent_topic_approve(PDO $pdo,int $id): int
         $stmt->execute([$id]);
         $idea=$stmt->fetch();
         if (!$idea || $idea['guide_id']!==null) throw new RuntimeException('该原创选题尚未通过人工审核或已创建草稿');
+        if ($idea['asset_status']==='pending') throw new RuntimeException('原创插画任务未完成，请完成后再确认草稿');
         if (mb_strlen(trim(strip_tags($idea['html'])))<90) {
             throw new RuntimeException('文章正文内容不足，无法建立草稿');
         }
