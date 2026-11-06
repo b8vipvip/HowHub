@@ -57,6 +57,10 @@ function agent_research_tick(PDO $pdo, ?callable $searchFixture = null,
                 if (setting('agent_creation_mode','topic_only')==='topic_only') {
                     agent_topic_enqueue($pdo,(string)($entry['title']??''),(string)($entry['url']??''),
                         'search_api',(string)$topic['topic'],(string)$topic['language']);
+                    foreach(agent_topic_questions((string)($entry['description']??'')) as $question) {
+                        agent_topic_enqueue($pdo,$question,(string)($entry['url']??''),
+                            'search_question',(string)$topic['topic'],(string)$topic['language']);
+                    }
                 }
                 if (agent_research_propose($pdo,(string)($entry['url']??''),
                     (string)($entry['title']??''),(string)($entry['description']??''),
