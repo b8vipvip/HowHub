@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS agent_ai_video_budget (
  created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agent_ai_video_budget_recent ON agent_ai_video_budget(created_at);
+CREATE TABLE IF NOT EXISTS agent_ai_video_options (
+ idea_id INTEGER PRIMARY KEY REFERENCES agent_topic_ideas(id) ON DELETE CASCADE,
+ seconds INTEGER NOT NULL DEFAULT 4,
+ size TEXT NOT NULL DEFAULT '1280x720',
+ max_mb INTEGER NOT NULL DEFAULT 18
+);
 SQL);
 }
 
@@ -137,8 +143,14 @@ function agent_ai_video_transport(string $action,array $payload,?callable $fixtu
     ];
     if ($action==='start') {
         $opts[CURLOPT_POST]=true;
+        $allowedSizes=['1280x720','720x1280','1920x1080'];
+        $size=(string)($payload['size']??'1280x720');
+        $seconds=(int)($payload['seconds']??4);
+        if(!in_array($size,$allowedSizes,true) || $seconds<4 || $seconds>120) {
+            throw new RuntimeException('视频尺寸/时长超出受控模型参数范围');
+        }
         $fields=['model'=>$config['model'],'prompt'=>(string)$payload['prompt'],
-            'size'=>'1280x720','seconds'=>'4'];
+            'size'=>$size,'seconds'=>(string)$seconds];
         if($config['format']==='json') {
             $opts[CURLOPT_POSTFIELDS]=json_encode($fields,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
             $headers[]='Content-Type: application/json';
@@ -193,6 +205,20 @@ function agent_ai_video_enqueue(PDO $pdo,int $id): void
     $enabled=setting('agent_ai_video_enabled','0')==='1';
     $pdo->prepare("INSERT INTO agent_ai_video_jobs(idea_id,status) VALUES (?,?)
         ON CONFLICT(idea_id) DO NOTHING")->execute([$id,$enabled?'queued':'off']);
+    $seconds=(int)setting('agent_ai_video_seconds','4');
+    $size=setting('agent_ai_video_size','1280x720');
+    $maxMb=(int)setting('agent_ai_video_max_mb','18');
+    if($seconds<4||$seconds>120||!in_array($size,['1280x720','720x1280','1920x1080'],true)||
+        $maxMb<1||$maxMb>128) throw new RuntimeException('视频任务大小、分辨率或时长配置不合法');
+    $pdo->prepare('INSERT OR IGNORE INTO agent_ai_video_options(idea_id,seconds,size,max_mb) VALUES(?,?,?,?)')
+        ->execute([$id,$seconds,$size,$maxMb]);
+}
+
+function agent_ai_video_options(PDO $pdo,int $id): array
+{
+    $q=$pdo->prepare('SELECT seconds,size,max_mb FROM agent_ai_video_options WHERE idea_id=?');
+    $q->execute([$id]);$options=$q->fetch();
+    return $options ?: ['seconds'=>4,'size'=>'1280x720','max_mb'=>18];
 }
 
 function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixture=null,?int $now=null): array
@@ -211,7 +237,9 @@ function agent_ai_video_process(PDO $pdo,array $job,array $idea,?callable $fixtu
                 provider_base=?,model=?,prompt=?,submitted_at=?,updated_at=?,next_check=?,checks=0
                 WHERE idea_id=? AND status='queued'")
                 ->execute([$config['base'],$config['model'],$prompt,$now,$now,$now+90,$id]);
-            $result=agent_ai_video_transport('start',['prompt'=>$prompt],$fixture);
+            $request=agent_ai_video_options($pdo,$id);
+            $result=agent_ai_video_transport('start',['prompt'=>$prompt,
+                'seconds'=>(int)$request['seconds'],'size'=>(string)$request['size']],$fixture);
             if(!is_array($result)) throw new RuntimeException('视频创建响应不是 JSON');
             $remote=agent_ai_video_job_validate($result);
             $newStatus=$remote['status']==='completed'?'ready':(
