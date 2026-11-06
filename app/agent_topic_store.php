@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS agent_topic_runs (
 CREATE INDEX IF NOT EXISTS agent_topic_runs_recent ON agent_topic_runs(kind,requested_at);
 SQL);
     agent_topic_quality_tables($pdo);
+    agent_topic_av_tables($pdo);
 }
 
 function agent_topic_clean_title(string $raw): string
@@ -109,6 +110,12 @@ function agent_topic_approve(PDO $pdo,int $id): int
         $qualityStatus=$quality->fetchColumn();
         if ($qualityStatus!==false && !in_array($qualityStatus,['reviewed','waived'],true)) {
             throw new RuntimeException('原创教程的独立质量审查尚未完成；请先完成检查或填写人工复核理由');
+        }
+        $media=$pdo->prepare('SELECT audio_status,video_status FROM agent_topic_av WHERE idea_id=?');
+        $media->execute([$id]);
+        $mediaState=$media->fetch();
+        if ($mediaState && ($mediaState['audio_status']==='pending' || $mediaState['video_status']==='pending')) {
+            throw new RuntimeException('原创配音或视频还在生成队列；请完成或手动跳过后再审核');
         }
         if ($idea['asset_status']==='pending') throw new RuntimeException('原创插画任务未完成，请完成后再确认草稿');
         if (mb_strlen(trim(strip_tags($idea['html'])))<90) {
