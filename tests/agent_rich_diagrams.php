@@ -85,6 +85,6 @@ if(substr_count($accent,'<mover>')!==2 || !str_contains($accent,'ℝ')) {
 if(agent_tex_mathml('\begin{cases}x&y&z\end{cases}')!=='' ||
     agent_tex_mathml('\sqrt[not allowed]{x}')!=='' ||
     agent_tex_mathml('\mathbb{unsafe}')!=='') {
-    throw new RuntimeException('Malformed or unsupported advanced math syntax accepted');
+    throw new RuntimeException('Malformed advanced math accepted: '.mb_substr(agent_tex_mathml('\\begin{cases}x&y&z\\end{cases}'),0,120).' / '.mb_substr(agent_tex_mathml('\\sqrt[not allowed]{x}'),0,120).' / '.mb_substr(agent_tex_mathml('\\mathbb{unsafe}'),0,120));
 }
 echo "Rich diagram/math passed: branched DAG, mindmap, sum, matrix, CJK labels, disallowed directives\n";
