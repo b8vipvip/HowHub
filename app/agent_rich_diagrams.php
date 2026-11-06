@@ -117,9 +117,10 @@ function agent_mermaid_mindmap_preview(string $definition): string
 
 function agent_mermaid_diagram_preview(string $definition): string
 {
+    // Preserve the established compact layout for simple linear chains.
+    $linear=agent_mermaid_linear_preview($definition);
+    if($linear!=='') return $linear;
     $graph=agent_mermaid_graph_preview($definition);
     if($graph!=='') return $graph;
-    $mindmap=agent_mermaid_mindmap_preview($definition);
-    if($mindmap!=='') return $mindmap;
-    return agent_mermaid_linear_preview($definition);
+    return agent_mermaid_mindmap_preview($definition);
 }
