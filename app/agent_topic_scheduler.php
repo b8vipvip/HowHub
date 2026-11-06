@@ -33,6 +33,15 @@ function agent_topic_budget_take(PDO $pdo,string $kind,int $ideaId,?int $now=nul
 function agent_topic_next(PDO $pdo): ?array
 {
     if (setting('agent_creation_mode','topic_only')!=='topic_only') return null;
+    // Run a separate quality/risk assessment; it never opens source articles.
+    $audit=$pdo->query("SELECT i.* FROM agent_topic_ideas i
+        JOIN agent_topic_quality q ON q.idea_id=i.id
+        WHERE i.status='review' AND q.status='pending'
+        ORDER BY i.id LIMIT 1")->fetch();
+    if ($audit && agent_topic_quality_budget($pdo,'review',(int)$audit['id'])) {
+        $result=agent_topic_quality_process($pdo,$audit);
+        return ['action'=>'quality_review','topic_id'=>(int)$audit['id']]+$result;
+    }
     // Settle outstanding optional pictures before issuing new text jobs.
     $pending=$pdo->query("SELECT * FROM agent_topic_ideas WHERE status='review' AND asset_status='pending' ORDER BY id LIMIT 1")->fetch();
     if ($pending && (setting('agent_original_image_enabled','0')!=='1' ||
