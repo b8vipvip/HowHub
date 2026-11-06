@@ -6,6 +6,13 @@ function agent_admin_action(PDO $pdo, array $post): string
 {
     $action=(string)($post['action']??'');
     $id=max(0,(int)($post['id']??0));
+    if ($action==='audio_settings') {
+        $model=trim((string)($post['model']??'whisper-1'));
+        if (!preg_match('/^[a-zA-Z0-9._:+-]{1,100}$/D',$model)) throw new InvalidArgumentException('音频模型 ID 格式错误');
+        set_setting('agent_stt_enabled',($post['enabled']??'')==='1'?'1':'0');
+        set_setting('agent_stt_model',$model);
+        return '视频音频转写选项已保存，仅对有明确许可的直链视频生效';
+    }
     if (str_starts_with($action,'research_')) return agent_research_admin_action($pdo,$post);
     if ($action==='global') {
         set_setting('agent_enabled',($post['enabled']??'')==='1'?'1':'0');
