@@ -33,6 +33,19 @@ function agent_topic_admin_action(PDO $pdo,array $post): string
             ->execute([$id]);
         return '已跳过该文章的待生成插画，可继续人工审核';
     }
+    if ($action==='topic_diagram_settings') {
+        set_setting('agent_diagram_auto_enabled',($post['enabled']??'')==='1'?'1':'0');
+        set_setting('agent_diagram_daily',(string)min(8,max(0,(int)($post['daily']??4))));
+        return '已更新 Graphviz 图形渲染策略；仅对本站原创的安全流程图与思维导图生效';
+    }
+    if ($action==='topic_diagram_generate') {
+        if(url_import_bin('dot')==='') throw new RuntimeException('服务器没有 Graphviz（dot），无法生成 PNG');
+        if(!agent_diagram_daily_reserve($pdo,$id)) throw new RuntimeException('今日 Graphviz 渲染预算已用完');
+        $pdo->prepare("DELETE FROM agent_diagram_images WHERE idea_id=? AND status IN ('failed','skipped')")
+            ->execute([$id]);
+        $result=agent_diagram_process($pdo,$id);
+        return ($result['status']??'')==='complete'?'已生成或复用本站原创的安全流程 PNG':'没有可渲染的图源码';
+    }
     if ($action==='topic_fact_auto_settings') {
         $enabled=($post['enabled']??'')==='1';
         $daily=min(8,max(0,(int)($post['daily']??2)));
@@ -248,6 +261,17 @@ function agent_topic_admin_section(PDO $pdo): void
          '<label>启用自动原文核查<select name="enabled"><option value="0" '.(!$autoFactOn?'selected':'').'>关闭（仅手动核查）</option><option value="1" '.($autoFactOn?'selected':'').'>仅限已批准来源</option></select></label>'.
          '<label>每日自动核查上限<input type="number" min="0" max="8" name="daily" value="'.$autoFactMax.'"></label>'.
          '<button class="button secondary" type="submit">保存自动核查设置</button></form>';
+    $diagramOn=setting('agent_diagram_auto_enabled','0')==='1';
+    $diagramDaily=min(8,max(0,(int)setting('agent_diagram_daily','4')));
+    $graphBin=url_import_bin('dot')!=='';
+    echo '<h3>可选高保真节点与连线 PNG（本地 Graphviz）</h3>';
+    echo '<p class="muted">对原创流程图或思维导图在本站绘制真实的节点连线 PNG，保留 Mermaid 原始源码以便修改。只支持通过白名单解析的分支图与树状导图，不会执行任意 Mermaid/SVG/JavaScript。需要安装 graphviz；若没有该程序则沿用原有 HTML 可访问关系图。</p>';
+    echo '<p class="muted">Graphviz 状态：'.($graphBin?'已安装':'未安装').'；每日生成上限：'.$diagramDaily.'；功能默认关闭</p>';
+    echo '<form method="post" action="/admin/agent/action" class="ai-import-actions">'.csrf_input().
+         '<input type="hidden" name="action" value="topic_diagram_settings">'.
+         '<label>自动生成原创关系图<select name="enabled"><option value="0" '.(!$diagramOn?'selected':'').'>关闭（保留 HTML 原生预览）</option><option value="1" '.($diagramOn?'selected':'').'>开启（需 dot）</option></select></label>'.
+         '<label>每日图形数量<input type="number" min="0" max="8" name="daily" value="'.$diagramDaily.'"></label>'.
+         '<button class="button secondary" type="submit">保存图形渲染设置</button></form>';
     echo '<h3>原创文章生成队列与审核</h3><div class="responsive-table"><table><thead><tr><th>原创选题 / 生成标题</th><th>状态及评分</th><th>操作</th></tr></thead><tbody>';
     $qualityLookup=$pdo->prepare('SELECT * FROM agent_topic_quality WHERE idea_id=?');
     $avLookup=$pdo->prepare('SELECT * FROM agent_topic_av WHERE idea_id=?');
@@ -285,6 +309,16 @@ function agent_topic_admin_section(PDO $pdo): void
                         ' · 尝试 '.(int)$task['attempts'].' 次 · 最后状态 '.h($task['last_status']).
                         ' · '.h($task['source_url']).'</small></p>';
                 }
+            }
+            $diagramLookup=$pdo->prepare('SELECT status,image_url FROM agent_diagram_images WHERE idea_id=?');
+            $diagramLookup->execute([$selected]);$existingDiagram=$diagramLookup->fetch();
+            if($existingDiagram) echo '<p class="muted">Graphviz 图片：'.h($existingDiagram['status']).
+                ' '.h($existingDiagram['image_url']).'</p>';
+            if($item['status']==='review' && $graphBin && (!$existingDiagram || $existingDiagram['status']!=='complete')) {
+                echo '<form method="post" action="/admin/agent/action">'.csrf_input().
+                     '<input type="hidden" name="action" value="topic_diagram_generate">'.
+                     '<input type="hidden" name="id" value="'.$selected.'">'.
+                     '<button class="button secondary" type="submit">生成首张原创流程/思维导图 PNG</button></form>';
             }
             $modelVideoLookup->execute([$selected]);$modelVideo=$modelVideoLookup->fetch();
             if($modelVideo) {
