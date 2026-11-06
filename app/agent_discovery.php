@@ -85,6 +85,10 @@ function agent_discover(PDO $pdo, array $source, ?callable $fixture = null, stri
                 $ins=$pdo->prepare('INSERT OR IGNORE INTO agent_feeds(source_id,url,url_hash) VALUES (?,?,?)');
                 $ins->execute([$source['id'],$item['url'],hash('sha256',$item['url'])]);
                 $nested += $ins->rowCount();
+            } elseif (setting('agent_creation_mode','topic_only')==='topic_only') {
+                // Only titles from feed entries, never fetch their full article.
+                if ($item['title']!=='' && agent_topic_enqueue($pdo,$item['title'],$item['url'],
+                    'feed_title',(string)$source['industry'],(string)$source['region'],(int)$source['id'])) $added++;
             } elseif (agent_enqueue($pdo,$source,$item['url'],$item['title'])) $added++;
             if ($added + $nested >= 20) break;
         }
