@@ -50,6 +50,10 @@ function agent_tick(PDO $pdo, ?callable $fixture = null, ?int $now = null): arra
         }
         return ['source'=>$source['origin'],'action'=>'discover']+$result;
     }
+    if (setting('agent_auto_source_enabled','0')==='1') {
+        $research=agent_research_tick($pdo,null,null,$now);
+        return ['action'=>'source_research']+$research;
+    }
     return ['status'=>'idle','message'=>'所有来源均在冷却期或未启用'];
 }
 
